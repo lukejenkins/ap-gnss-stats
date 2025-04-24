@@ -30,7 +30,13 @@ def get_gnss_info(device):
     try:
         logger.info(f"Connecting to {device['host']} via SSH...")
         with ConnectHandler(**device) as conn:
+            # Switch to Privileged EXEC mode
+            conn.enable()
+            logger.info("Switched to Privileged EXEC mode.")
+
+            # Run the command
             output = conn.send_command("show gnss info")
+
             # Log raw SSH session
             ssh_log_file = create_filename("ssh_session_log", device['host'], "txt")
             with open(ssh_log_file, "w") as f:
@@ -225,10 +231,11 @@ def main():
     # Retrieve variables from environment or prompt the user
     device = {
         'device_type': 'cisco_ios',
-        'host': os.getenv('GNSS_HOST') or input("Enter the device IP/hostname: "),
-        'username': os.getenv('GNSS_USERNAME') or input("Enter the username: "),
-        'password': os.getenv('GNSS_PASSWORD') or input("Enter the password: "),
-        'timeout': int(os.getenv('GNSS_TIMEOUT', 20)),  # Default timeout is 20 seconds
+        'host': os.getenv('AP_HOST') or input("Enter the device IP/hostname: "),
+        'username': os.getenv('AP_USERNAME') or input("Enter the username: "),
+        'password': os.getenv('AP_PASSWORD') or input("Enter the password: "),
+        'secret': os.getenv('AP_SECRET') or input("Enter the enable password: "),
+        'timeout': int(os.getenv('AP_TIMEOUT', 20)),  # Default timeout is 20 seconds
     }
 
     output = get_gnss_info(device)
