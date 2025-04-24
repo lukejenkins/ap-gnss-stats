@@ -4,10 +4,14 @@ from netmiko import ConnectHandler
 import logging
 import re
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Directory configurations
-LOG_DIR = "gnss_logs"
-DATA_DIR = "gnss_data"
+LOG_DIR = os.getenv("LOG_DIR", "gnss_logs")  # Read from .env or use default
+DATA_DIR = os.getenv("DATA_DIR", "gnss_data")  # Read from .env or use default
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -50,47 +54,47 @@ def get_gnss_info(device):
 # Function to parse GNSS output
 def parse_gnss_info(output):
     main_metrics = {
-        'state': 0,
-        'external_antenna': 0,
-        'fix_type': 0,
-        'valid_fix': 0,
-        'latitude': 0.0,
-        'longitude': 0.0,
-        'altitude_msl': 0.0,
-        'altitude_hae': 0.0,
-        'horacc': 0.0,
-        'vertacc': 0.0,
-        'satellite_count': 0,
-        'satellites_used': 0,
-        'hdop': 0.0,
-        'vdop': 0.0,
-        'pdop': 0.0
+        'state': "",
+        'external_antenna': "",
+        'fix_type': "",
+        'valid_fix': "",
+        'latitude': "",
+        'longitude': "",
+        'altitude_msl': "",
+        'altitude_hae': "",
+        'horacc': "",
+        'vertacc': "",
+        'satellite_count': "",
+        'satellites_used': "",
+        'hdop': "",
+        'vdop': "",
+        'pdop': ""
     }
     pp_metrics = {
-        'latitude': 0.0,
-        'longitude': 0.0,
-        'horacc': 0.0,
-        'hdop': 0.0,
-        'major_axis': 0.0,
-        'minor_axis': 0.0,
-        'orientation': 0.0,
-        'altitude_msl': 0.0,
-        'altitude_hae': 0.0,
-        'vertacc': 0.0
+        'latitude': "",
+        'longitude': "",
+        'horacc': "",
+        'hdop': "",
+        'major_axis': "",
+        'minor_axis': "",
+        'orientation': "",
+        'altitude_msl': "",
+        'altitude_hae': "",
+        'vertacc': ""
     }
     last_loc_metrics = {
-        'latitude': 0.0,
-        'longitude': 0.0,
-        'horacc': 0.0,
-        'hdop': 0.0,
-        'major_axis': 0.0,
-        'minor_axis': 0.0,
-        'orientation': 0.0,
-        'altitude_msl': 0.0,
-        'altitude_hae': 0.0,
-        'vertacc': 0.0,
-        'derivation_type': 0,
-        'age': 0
+        'latitude': "",
+        'longitude': "",
+        'horacc': "",
+        'hdop': "",
+        'major_axis': "",
+        'minor_axis': "",
+        'orientation': "",
+        'altitude_msl': "",
+        'altitude_hae': "",
+        'vertacc': "",
+        'derivation_type': "",
+        'age': "",
     }
 
     try:
