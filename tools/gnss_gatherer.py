@@ -222,13 +222,15 @@ def save_timestamped_json(parsed_data, hostname):
 
 # Main entry point
 def main():
+    # Retrieve variables from environment or prompt the user
     device = {
         'device_type': 'cisco_ios',
-        'host': 'your-device-ip',      # Replace with your AP's IP/hostname
-        'username': 'your-username',   # Replace with credentials
-        'password': 'your-password',
-        'timeout': 20,
+        'host': os.getenv('GNSS_HOST') or input("Enter the device IP/hostname: "),
+        'username': os.getenv('GNSS_USERNAME') or input("Enter the username: "),
+        'password': os.getenv('GNSS_PASSWORD') or input("Enter the password: "),
+        'timeout': int(os.getenv('GNSS_TIMEOUT', 20)),  # Default timeout is 20 seconds
     }
+
     output = get_gnss_info(device)
     if output:
         main_metrics, pp_metrics, last_loc_metrics = parse_gnss_info(output)
