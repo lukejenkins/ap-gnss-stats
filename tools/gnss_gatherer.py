@@ -116,7 +116,8 @@ def parse_gnss_info(output):
             # Main GNSS data
             if section == "main":
                 if "GnssState:" in line:
-                    main_metrics['state'] = 1 if "Started" in line else 0
+                    if "Started" in line.lower():
+                        main_metrics['state'] = 1
                 elif "ExternalAntenna:" in line:
                     if "false" in line.lower():
                         main_metrics['external_antenna'] = 0
