@@ -118,7 +118,10 @@ def parse_gnss_info(output):
                 if "GnssState:" in line:
                     main_metrics['state'] = 1 if "Started" in line else 0
                 elif "ExternalAntenna:" in line:
-                    main_metrics['external_antenna'] = 1 if "true" in line.lower() else 0
+                    if "false" in line.lower():
+                        main_metrics['external_antenna'] = 0
+                    elif "true" in line.lower():
+                        main_metrics['external_antenna'] = 1
                 elif "Fix:" in line:
                     main_metrics['fix_type'] = 2 if "3D-Fix" in line else 1 if "2D-Fix" in line else 0
                     main_metrics['valid_fix'] = 1 if "ValidFix: true" in line else 0
