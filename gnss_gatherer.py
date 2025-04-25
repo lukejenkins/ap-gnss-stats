@@ -63,6 +63,10 @@ def parse_gnss_info(output):
         'altitude_msl': "",
         'altitude_hae': "",
         'horacc': "",
+        'horacc_hDOP': "",
+        'major_axis': "",
+        'minor_axis': "",
+        'orientation': "",
         'vertacc': "",
         'satellite_count': "",
         'satellites_used': "",
@@ -100,6 +104,7 @@ def parse_gnss_info(output):
     try:
         lines = output.splitlines()
         section = "main"  # Tracks which section we're parsing
+        timestamp = None # Add timestamp for the current GNSS data
         timestamp_last_loc = None
 
         for line in lines:
@@ -130,6 +135,13 @@ def parse_gnss_info(output):
                     parts = line.split()
                     main_metrics['latitude'] = float(parts[1])
                     main_metrics['longitude'] = float(parts[3])
+                elif "HorAcc:" in line:
+                    main_metrics['horacc'] = float(re.search(r"HorAcc:\s+([\d.]+)", line).group(1))
+                    main_metrics['horacc_hDOP'] = float(re.search(r"hDOP:\s+([\d.]+)", line).group(1))
+                elif "Major axis:" in line:
+                    last_loc_metrics['major_axis'] = float(re.search(r"Major axis:\s+([\d.]+)", line).group(1))
+                    last_loc_metrics['minor_axis'] = float(re.search(r"Minor axis:\s+([\d.]+)", line).group(1))
+                    last_loc_metrics['orientation'] = float(re.search(r"Orientation:\s+([\d.]+)", line).group(1))
                 elif "Altitude MSL:" in line:
                     main_metrics['altitude_msl'] = float(re.search(r"MSL:\s+([\d.]+)", line).group(1))
                     main_metrics['altitude_hae'] = float(re.search(r"HAE:\s+([\d.]+)", line).group(1))
