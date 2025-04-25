@@ -1,6 +1,6 @@
 import os
 import json
-from netmiko import ConnectHandler
+from netmiko import ConnectHandler, NetmikoAuthenticationException, NetmikoTimeoutException
 import logging
 import re
 from datetime import datetime
@@ -32,7 +32,7 @@ def latest_json_filename(hostname):
 # Function to connect to the device and retrieve GNSS info
 def get_gnss_info(device):
     try:
-        logger.info(f"Connecting to {device['host']} via SSH...")
+        logger.info("Connecting to %s via SSH...", device['host'])
         with ConnectHandler(**device) as conn:
             # Switch to Privileged EXEC mode
             conn.enable()
@@ -45,10 +45,10 @@ def get_gnss_info(device):
             ssh_log_file = create_filename("ssh_session_log", device['host'], "txt")
             with open(ssh_log_file, "w") as f:
                 f.write(output)
-            logger.info(f"SSH session logged to {ssh_log_file}")
+            logger.info("SSH session logged to %s", ssh_log_file)
             return output
-    except Exception as e:
-        logger.error(f"Error connecting to device: {e}")
+    except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
+        logger.error("Error connecting to device: %s", e)
         return None
 
 # Function to parse GNSS output
@@ -194,7 +194,7 @@ def parse_gnss_info(output):
                 age_seconds = (datetime.now() - last_time).total_seconds()
                 last_loc_metrics['age'] = age_seconds
             except Exception as e:
-                logger.warning(f"Could not parse last location time: {e}")
+                logger.warning("Could not parse last location time: %s", e)
 
         # Satellite used counting (from table)
         satellites_used = 0
@@ -256,7 +256,7 @@ def main():
             "timestamp": datetime.now().isoformat(),
         }
         # Save a timestamped full log for auditing (in LOG_DIR)
-        log_file = create_filename("parsed_gnss_data", device['host'], "json", LOG_DIR)
+        log_file = create_filename("parsing_log", device['host'], "log", LOG_DIR)
         with open(log_file, "w") as f:
             json.dump(parsed_data, f, indent=4)
         # Save the latest data for the exporter
