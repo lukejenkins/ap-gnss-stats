@@ -1,0 +1,80 @@
+{
+    "tool": {
+        "name": "parse_logs.py",
+        "version": "0.1.0",
+        "parser": "GnssInfoParser",
+        "parser_version": "0.1.0"
+      },
+      "timestamp": "2025-04-28T15:59:59.468620",
+      "file_metadata": {
+        "filename": "20250421-101648-putty-example-outdoor-ap1.txt",
+        "file_created": "2025-04-28T15:36:00",
+        "file_modified": "2025-04-28T15:36:00"
+      },
+    "main_gnss_metrics": {
+        "state": "Started",
+        "external_antenna": 0,
+        "fix_type": "3D-Fix",
+        "valid_fix": 1,
+        "gnss_fix_time": "2025-04-21 16:17:09",
+        "latitude": 31.191798499999997,
+        "longitude": -101.9449398,
+        "horacc": 9.0639132,
+        "horacc_hdop": 1.14,
+        "uncertainty_ellipse_major_axis": 9.0639132,
+        "uncertainty_ellipse_minor_axis": 9.0639132,
+        "uncertainty_ellipse_orientation": 0.0,
+        "altitude_msl": 1415.932,
+        "altitude_hae": 1398.884,
+        "vertacc": 11.537,
+        "numsat": 10,
+        "rangeres": 17.9,
+        "gpgstrms": 6.8,
+        "pdop": 3.31,
+        "hdop": 1.28,
+        "vdop": 3.05,
+        "ndop": 1.1,
+        "edop": 0.64,
+        "gdop": 0.0,
+        "tdop": 0.0,
+        "satellitecount": 32
+    },
+    "gnss_postprocessor_metrics": {
+        "latitude": 31.19178165912583,
+        "longitude": -101.94494084033742,
+        "horacc": 31.94693,
+        "hdop": 18.36031,
+        "major_axis": 34.679835,
+        "minor_axis": 28.583843,
+        "orientation": 83.464234,
+        "altitude_msl": 1424.315,
+        "altitude_hae": 0.0,
+        "vertacc": 0.0
+    },
+    "ciscognss_metrics": {
+        "latitude": 31.193842591249918,
+        "longitude": -101.9389720196628,
+        "horacc": 9.9986601,
+        "hdop": 24.456842,
+        "major_axis": 9.9986601,
+        "minor_axis": 9.9986601,
+        "orientation": 0.0,
+        "altitude_msl": 884.05956,
+        "altitude_hae": 0.0,
+        "vertacc": 0.0
+    },
+    "last_loc_metrics": {
+        "latitude": 31.191781659126562,
+        "longitude": -101.944940840341,
+        "horacc": 31.946951,
+        "hdop": 18.360317,
+        "major_axis": 34.679848,
+        "minor_axis": 28.583854,
+        "orientation": 83.464233,
+        "altitude_msl": 1441.6487,
+        "altitude_hae": 0.0,
+        "vertacc": 0.0,
+        "derivation_type": "GNSS_PostProcessor",
+        "time": "2025-04-21 16:17:01"
+    }
+}
