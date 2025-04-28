@@ -1,1 +1,0 @@
-# ap-gnss-stats
