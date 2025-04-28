@@ -1,14 +1,11 @@
-"""
-Parser module for Cisco AP GNSS statistics from 'show gnss info' command output.
-"""
 import re
 import json
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple, Union
+from typing import Dict, Any
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -16,7 +13,7 @@ logger = logging.getLogger(__name__)
 class GnssInfoParser:
     """
     Parser for Cisco AP 'show gnss info' command output.
-    
+
     This parser extracts detailed GNSS information from the output of the
     'show gnss info' command run on Cisco WiFi Access Points.
     """
@@ -33,35 +30,13 @@ class GnssInfoParser:
             logging.basicConfig(level=logging.DEBUG)
         else:
             logging.basicConfig(level=logging.INFO)
-            
+
         # Common regex patterns
-        self._ap_name_pattern = re.compile(r'AP\s+Name\s*:\s*(.+?)(?:\r?\n)', re.IGNORECASE)
-        self._model_pattern = re.compile(r'AP\s+Model\s*:\s*(.+?)(?:\r?\n)', re.IGNORECASE)
-        self._mac_pattern = re.compile(r'MAC\s+Address\s*:\s*([0-9a-fA-F:]+)(?:\r?\n)', re.IGNORECASE)
-        self._ip_pattern = re.compile(r'IP\s+Address\s*:\s*(\d+\.\d+\.\d+\.\d+)(?:\r?\n)', re.IGNORECASE)
-        self._location_pattern = re.compile(r'AP\s+Location\s*:\s*(.+?)(?:\r?\n)', re.IGNORECASE)
-        self._gnss_status_pattern = re.compile(r'GNSS\s+Status\s*:\s*(.+?)(?:\r?\n)', re.IGNORECASE)
-        self._latitude_pattern = re.compile(r'Latitude\s*:\s*([-+]?\d+\.\d+)(?:\r?\n)', re.IGNORECASE)
-        self._longitude_pattern = re.compile(r'Longitude\s*:\s*([-+]?\d+\.\d+)(?:\r?\n)', re.IGNORECASE)
-        self._altitude_pattern = re.compile(r'Altitude\s*:\s*([-+]?\d+\.\d+)\s*m(?:\r?\n)', re.IGNORECASE)
-        self._satellites_pattern = re.compile(r'Number\s+of\s+Satellites\s*:\s*(\d+)(?:\r?\n)', re.IGNORECASE)
-        self._timestamp_pattern = re.compile(r'Time\s+Stamp\s*:\s*(.+?)(?:\r?\n)', re.IGNORECASE)
-        self._last_update_pattern = re.compile(r'Last\s+Update\s*:\s*(.+?)(?:\r?\n)', re.IGNORECASE)
-        self._hdop_vdop_pattern = re.compile(r'Location\s+Quality\s*:.*?HDOP\s*:\s*([\d.]+)\s*,\s*VDOP\s*:\s*([\d.]+)', re.IGNORECASE)
-        self._location_quality_pattern = re.compile(r'Location\s+Quality\s*:\s*(\w+)\s*\(', re.IGNORECASE)
-        
-        # Satellite details block pattern
-        self._satellite_block_pattern = re.compile(
-            r'Satellite\s+details\s*:.*?ID\s+Type\s+SNR\(dB\)\s+Azimuth\s+Elevation\s+Used.*?'
-            r'--\s+------\s+-------\s+-------\s+---------\s+----\s*(.*?)(?:\r?\n\r?\n|\Z)',
-            re.IGNORECASE | re.DOTALL
-        )
-        
-        # Individual satellite line pattern
-        self._satellite_line_pattern = re.compile(
-            r'(\d+)\s+(\w+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\w+)',
-            re.IGNORECASE
-        )
+        self._latitude_pattern = re.compile(r'Latitude\s*:\s*([-+]?\d+\.\d+)', re.IGNORECASE)
+        self._longitude_pattern = re.compile(r'Longitude\s*:\s*([-+]?\d+\.\d+)', re.IGNORECASE)
+        self._fix_pattern = re.compile(r'Fix\s*:\s*(\S+)\s+ValidFix\s*:\s*(\w+)', re.IGNORECASE)
+        self._satellite_count_pattern = re.compile(r'SatelliteCount\s*:\s*(\d+)', re.IGNORECASE)
+        self._gnss_postprocessor_pattern = re.compile(r'GNSS_PostProcessor:\s*(.*?)\n\n', re.DOTALL)
 
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """
@@ -76,9 +51,9 @@ class GnssInfoParser:
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            
+
             logger.debug(f"Successfully read file: {file_path}")
-            
+
             # Get file metadata
             file_stats = os.stat(file_path)
             file_metadata = {
@@ -87,10 +62,10 @@ class GnssInfoParser:
                 'file_created': datetime.fromtimestamp(file_stats.st_ctime).isoformat(),
                 'file_modified': datetime.fromtimestamp(file_stats.st_mtime).isoformat()
             }
-            
+
             # Parse the content
             parsed_data = self.parse_text(content)
-            
+
             # Add metadata
             result = {
                 'tool': {
@@ -103,13 +78,13 @@ class GnssInfoParser:
                 'file_metadata': file_metadata,
                 'ap_data': parsed_data
             }
-            
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Error parsing file {file_path}: {str(e)}")
             raise
-    
+
     def parse_text(self, text: str) -> Dict[str, Any]:
         """
         Parse the text output of 'show gnss info'.
@@ -120,119 +95,32 @@ class GnssInfoParser:
         Returns:
             Dictionary containing the parsed GNSS data
         """
-        if self.debug:
-            logger.debug("Parsing text content:")
-            logger.debug("-" * 40)
-            logger.debug(text[:200] + "..." if len(text) > 200 else text)
-            logger.debug("-" * 40)
-        
         result = {}
-        
-        # Basic AP information
-        ap_name_match = self._ap_name_pattern.search(text)
-        if ap_name_match:
-            result['ap_name'] = ap_name_match.group(1).strip()
-        
-        model_match = self._model_pattern.search(text)
-        if model_match:
-            result['model'] = model_match.group(1).strip()
-            
-        mac_match = self._mac_pattern.search(text)
-        if mac_match:
-            result['mac_address'] = mac_match.group(1).strip()
-            
-        ip_match = self._ip_pattern.search(text)
-        if ip_match:
-            result['ip_address'] = ip_match.group(1).strip()
-            
-        location_match = self._location_pattern.search(text)
-        if location_match:
-            result['location'] = location_match.group(1).strip()
-            
-        # GNSS specific information
-        gnss_status_match = self._gnss_status_pattern.search(text)
-        if gnss_status_match:
-            result['gnss_status'] = gnss_status_match.group(1).strip()
-            
+
+        # Extract latitude and longitude
         latitude_match = self._latitude_pattern.search(text)
         if latitude_match:
-            try:
-                result['latitude'] = float(latitude_match.group(1))
-            except ValueError:
-                result['latitude'] = latitude_match.group(1)
-                
+            result['latitude'] = float(latitude_match.group(1))
+
         longitude_match = self._longitude_pattern.search(text)
         if longitude_match:
-            try:
-                result['longitude'] = float(longitude_match.group(1))
-            except ValueError:
-                result['longitude'] = longitude_match.group(1)
-                
-        altitude_match = self._altitude_pattern.search(text)
-        if altitude_match:
-            try:
-                result['altitude_meters'] = float(altitude_match.group(1))
-            except ValueError:
-                result['altitude_meters'] = altitude_match.group(1)
-                
-        satellites_match = self._satellites_pattern.search(text)
-        if satellites_match:
-            try:
-                result['satellites_count'] = int(satellites_match.group(1))
-            except ValueError:
-                result['satellites_count'] = satellites_match.group(1)
-                
-        timestamp_match = self._timestamp_pattern.search(text)
-        if timestamp_match:
-            result['gnss_timestamp'] = timestamp_match.group(1).strip()
-            
-        last_update_match = self._last_update_pattern.search(text)
-        if last_update_match:
-            result['last_update'] = last_update_match.group(1).strip()
-            
-        # Parse Location Quality (HDOP and VDOP)
-        hdop_vdop_match = self._hdop_vdop_pattern.search(text)
-        if hdop_vdop_match:
-            try:
-                result['hdop'] = float(hdop_vdop_match.group(1))
-                result['vdop'] = float(hdop_vdop_match.group(2))
-            except ValueError:
-                logger.warning("Could not convert HDOP/VDOP values to float")
-                
-        location_quality_match = self._location_quality_pattern.search(text)
-        if location_quality_match:
-            result['location_quality'] = location_quality_match.group(1).strip()
-        
-        # Parse satellite details if available
-        satellite_block_match = self._satellite_block_pattern.search(text)
-        if satellite_block_match:
-            satellite_data = satellite_block_match.group(1)
-            satellites = []
-            
-            for line in satellite_data.split('\n'):
-                line = line.strip()
-                if not line:  # Skip empty lines
-                    continue
-                    
-                satellite_match = self._satellite_line_pattern.search(line)
-                if satellite_match:
-                    try:
-                        satellite = {
-                            'id': int(satellite_match.group(1)),
-                            'type': satellite_match.group(2),
-                            'snr_db': int(satellite_match.group(3)),
-                            'azimuth': int(satellite_match.group(4)),
-                            'elevation': int(satellite_match.group(5)),
-                            'used': satellite_match.group(6).lower() == 'yes'
-                        }
-                        satellites.append(satellite)
-                    except ValueError as e:
-                        logger.warning(f"Error parsing satellite line '{line}': {e}")
-            
-            if satellites:
-                result['satellites'] = satellites
-        
-        if self.debug:
-            logger.debug(f"Parsed data: {json.dumps(result, indent=2)}")
-            
+            result['longitude'] = float(longitude_match.group(1))
+
+        # Extract Fix type and ValidFix
+        fix_match = self._fix_pattern.search(text)
+        if fix_match:
+            result['fix_type'] = fix_match.group(1)
+            result['valid_fix'] = fix_match.group(2).lower() == 'true'
+
+        # Extract satellite count
+        satellite_count_match = self._satellite_count_pattern.search(text)
+        if satellite_count_match:
+            result['satellite_count'] = int(satellite_count_match.group(1))
+
+        # Extract GNSS PostProcessor metrics
+        postprocessor_match = self._gnss_postprocessor_pattern.search(text)
+        if postprocessor_match:
+            # Further parsing can be added here for detailed metrics
+            result['gnss_postprocessor'] = postprocessor_match.group(1).strip()
+
         return result
