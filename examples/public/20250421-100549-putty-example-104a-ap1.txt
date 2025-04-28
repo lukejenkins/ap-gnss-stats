@@ -1,0 +1,40 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2025.04.21 10:05:49 =~=~=~=~=~=~=~=~=~=~=~=
+example-104a-ap1#show gnss info 
+
+GnssState: Started
+ExternalAntenna: false
+Fix: No-Fix ValidFix: false Time: 2025-04-21 16:06:19
+Latitude: 31.193473599999997 Longitude: -101.94353629999999
+HorAcc: 29237.554 hDOP: 99
+Uncertainty Ellipse:
+ Major axis: 29237.554 Minor axis: 29237.554 Orientation: 0
+Altitude MSL: 1429.958 HAE: 1412.909 VertAcc: 399
+NumSat: 0 RangeRes: 20 GpGstRms: 0
+pDOP: 140 hDOP: 99 vDOP: 99 nDOP: 99 eDOP: 99 gDOP: 0 tDOP: 0
+LastFixTime: 2025-04-21 15:54:17
+SatelliteCount: 2
+
+Const.    SatId CNO   Elev. Azim. Signal  Used  Health  Band  LTO  CBEE  
+GPS       1     20    13    39    CCLTS   No    Good    L1    No   Yes   
+GPS       22    15    61    74    CCLTS   No    Good    L1    No   Yes   
+
+GNSS_PostProcessor: 
+Latitude: 31.192985113505138 Longitude: -101.94507828339898
+HorAcc: 2773.3896 hDOP: 1593.9021
+Uncertainty Ellipse:
+ Major axis: 3900.773 Minor axis: 73.597091 Orientation: 41.516292
+Altitude MSL: 1423.8009 HAE: 0 VertAcc: 0
+
+CiscoGNSS: N/A
+
+Last Location Acquired: 
+Latitude: 31.192985113505138 Longitude: -101.94507828339898
+HorAcc: 2773.3896 hDOP: 1593.9021
+Uncertainty Ellipse:
+ Major axis: 3900.773 Minor axis: 73.597091 Orientation: 41.516292
+Altitude MSL: 1423.8009 HAE: 0 VertAcc: 0
+Derivation Type: GNSS_PostProcessor
+Time: 2025-04-21 16:06:15
+
+
+example-104a-ap1#

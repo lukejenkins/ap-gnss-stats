@@ -1,0 +1,75 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2025.04.21 10:16:48 =~=~=~=~=~=~=~=~=~=~=~=
+example-outdoor-ap1#show gnss info
+
+GnssState: Started
+ExternalAntenna: false
+Fix: 3D-Fix ValidFix: true Time: 2025-04-21 16:17:09
+Latitude: 31.191798499999997 Longitude: -101.9449398
+HorAcc: 9.0639132 hDOP: 1.14
+Uncertainty Ellipse:
+ Major axis: 9.0639132 Minor axis: 9.0639132 Orientation: 0
+Altitude MSL: 1415.932 HAE: 1398.884 VertAcc: 11.537
+NumSat: 10 RangeRes: 17.9 GpGstRms: 6.8
+pDOP: 3.31 hDOP: 1.28 vDOP: 3.05 nDOP: 1.1 eDOP: 0.64 gDOP: 0 tDOP: 0
+LastFixTime: 2025-04-21 16:17:08
+SatelliteCount: 32
+
+Const.    SatId CNO   Elev. Azim. Signal  Used  Health  Band  LTO  CBEE  
+GPS       6     32    44    163   CCLTS   No    Good    L1    No   Yes   
+GPS       11    24    18    186   CCLTS   No    Good    L1    No   Yes   
+GPS       12    26    11    293   CCLTS   No    Good    L1    No   Yes   
+GPS       13    31    9     216   CCLTS   No    Good    L1    No   Yes   
+GPS       14    37    39    98    CCLTS   Yes   Good    L1    No   Yes   
+GPS       17    39    52    48    CCLTS   Yes   Good    L1    No   Yes   
+GPS       19    38    82    356   CCLTS   Yes   Good    L1    No   Yes   
+GPS       22    31    57    81    CCLTS   Yes   Good    L1    No   Yes   
+GPS       24    30    42    297   CCLTS   No    Good    L1    No   Yes   
+GPS       30    26    7     157   CCLTS   No    Good    L1    No   Yes   
+GPS       6     28    44    163   Avail   Yes   Good    L5    No   Yes   
+GPS       14    33    39    98    Avail   Yes   Good    L5    No   Yes   
+GPS       24    26    42    297   Avail   Yes   Good    L5    No   Yes   
+GPS       30    10    7     157   Search  No    Good    L5    No   Yes   
+Galileo   2     35    3     289   CCLTS   No    Good    L1    No   No    
+Galileo   3     28    20    274   CCLTS   No    Good    L1    No   No    
+Galileo   5     27    12    224   CCLTS   No    Good    L1    No   No    
+Galileo   8     35    8     323   CCLTS   No    Good    L1    No   No    
+Galileo   12    32    52    87    CCLTS   Yes   Good    L1    No   No    
+Galileo   14    32    33    244   CCLTS   Yes   Good    L1    No   No    
+Galileo   24    35    65    70    CCLTS   Yes   Good    L1    No   No    
+Galileo   25    37    52    307   CCLTS   Yes   Good    L1    No   No    
+Galileo   33    41    15    36    CCLTS   No    Good    L1    No   No    
+Galileo   2     20    3     289   CCLTS   No    Good    L5    No   No    
+Galileo   3     23    20    274   CCLTS   No    Good    L5    No   No    
+Galileo   5     10    12    224   Search  No    Good    L5    No   No    
+Galileo   8     18    8     323   CCLTS   No    Good    L5    No   No    
+Galileo   12    16    52    87    Search  No    Good    L5    No   No    
+Galileo   14    27    33    244   CCLTS   Yes   Good    L5    No   No    
+Galileo   24    28    65    70    CCLTS   Yes   Good    L5    No   No    
+Galileo   25    26    52    307   CCLTS   Yes   Good    L5    No   No    
+Galileo   33    22    15    36    CCLTS   No    Good    L5    No   No    
+
+GNSS_PostProcessor: 
+Latitude: 31.19178165912583 Longitude: -101.94494084033742
+HorAcc: 31.946939 hDOP: 18.36031
+Uncertainty Ellipse:
+ Major axis: 34.679835 Minor axis: 28.583843 Orientation: 83.464234
+Altitude MSL: 1424.315 HAE: 0 VertAcc: 0
+
+CiscoGNSS: 
+Latitude: 31.193842591249918 Longitude: -101.9389720196628
+HorAcc: 9.9986601 hDOP: 24.456842
+Uncertainty Ellipse:
+ Major axis: 9.9986601 Minor axis: 9.9986601 Orientation: 0
+Altitude MSL: 884.05956 HAE: 0 VertAcc: 0
+
+Last Location Acquired: 
+Latitude: 31.191781659126562 Longitude: -101.944940840341
+HorAcc: 31.946951 hDOP: 18.360317
+Uncertainty Ellipse:
+ Major axis: 34.679848 Minor axis: 28.583854 Orientation: 83.464233
+Altitude MSL: 1424.3149 HAE: 0 VertAcc: 0
+Derivation Type: GNSS_PostProcessor
+Time: 2025-04-21 16:17:01
+
+
+example-outdoor-ap1#

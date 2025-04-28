@@ -1,0 +1,46 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2025.04.21 10:14:20 =~=~=~=~=~=~=~=~=~=~=~=
+example-326r-ap1#show gnss info
+	
+GnssState: Started
+ExternalAntenna: false
+Fix: No-Fix ValidFix: false Time: 2025-04-21 16:14:45
+Latitude: 0 Longitude: 0
+HorAcc: 3530033.6 hDOP: 99
+Uncertainty Ellipse:
+ Major axis: 3530033.6 Minor axis: 3530033.6 Orientation: 0
+Altitude MSL: -12 HAE: 0 VertAcc: 160000
+NumSat: 0 RangeRes: 20 GpGstRms: 0
+pDOP: 140 hDOP: 99 vDOP: 99 nDOP: 99 eDOP: 99 gDOP: 0 tDOP: 0
+LastFixTime: 2025-04-03 07:03:11
+SatelliteCount: 3
+
+Const.    SatId CNO   Elev. Azim. Signal  Used  Health  Band  LTO  CBEE  
+GPS       17    21    -128  -1    Avail   No    NoInfo  L1    No   No    
+GPS       19    20    -128  -1    Avail   No    NoInfo  L1    No   No    
+GPS       22    24    -128  -1    Avail   No    NoInfo  L1    No   No    
+
+GNSS_PostProcessor: 
+Latitude: 31.192569882144866 Longitude: -101.94399290046745
+HorAcc: 107.45308 hDOP: 61.754642
+Uncertainty Ellipse:
+ Major axis: 144.02611 Minor axis: 45.8882 Orientation: 108.81802
+Altitude MSL: 1429.1528 HAE: 0 VertAcc: 0
+
+CiscoGNSS: 
+Latitude: 31.206822557283061 Longitude: -101.99334250689336
+HorAcc: 73.971 hDOP: 29.045072
+Uncertainty Ellipse:
+ Major axis: 73.971 Minor axis: 73.971 Orientation: 0
+Altitude MSL: 944.94 HAE: 0 VertAcc: 0
+
+Last Location Acquired: 
+Latitude: 31.192569882144866 Longitude: -101.94399290046745
+HorAcc: 107.45308 hDOP: 61.754642
+Uncertainty Ellipse:
+ Major axis: 144.02611 Minor axis: 45.8882 Orientation: 108.81802
+Altitude MSL: 1429.1528 HAE: 0 VertAcc: 0
+Derivation Type: GNSS_PostProcessor
+Time: 2025-04-21 16:14:41
+
+
+example-326r-ap1#

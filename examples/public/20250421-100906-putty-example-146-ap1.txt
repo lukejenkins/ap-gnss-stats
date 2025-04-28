@@ -1,0 +1,58 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2025.04.21 10:09:06 =~=~=~=~=~=~=~=~=~=~=~=
+example-146-ap1#show gnss info 
+
+GnssState: Started
+ExternalAntenna: false
+Fix: 3D-Fix ValidFix: true Time: 2025-04-21 16:09:32
+Latitude: 31.194654100000001 Longitude: -101.9459665
+HorAcc: 28.958825 hDOP: 1.67
+Uncertainty Ellipse:
+ Major axis: 28.958825 Minor axis: 28.958825 Orientation: 0
+Altitude MSL: 1411.816 HAE: 1394.767 VertAcc: 23.793
+NumSat: 7 RangeRes: 6.2 GpGstRms: 372691.1
+pDOP: 2.53 hDOP: 1.67 vDOP: 1.9 nDOP: 1.39 eDOP: 0.93 gDOP: 0 tDOP: 0
+LastFixTime: 2025-04-21 16:09:31
+SatelliteCount: 15
+
+Const.    SatId CNO   Elev. Azim. Signal  Used  Health  Band  LTO  CBEE  
+GPS       1     24    12    38    CCLTS   Yes   Good    L1    No   Yes   
+GPS       12    20    9     291   CCLTS   No    Good    L1    No   Yes   
+GPS       14    24    41    95    CCLTS   Yes   Good    L1    No   Yes   
+GPS       17    25    56    47    CCLTS   Yes   Good    L1    No   Yes   
+GPS       19    21    84    330   CCLTS   No    Good    L1    No   Yes   
+GPS       22    26    60    76    CCLTS   Yes   Good    L1    No   Yes   
+GPS       24    22    40    300   CCLTS   Yes   Good    L1    No   Yes   
+GPS       1     25    12    38    Avail   Yes   Good    L5    No   Yes   
+GPS       14    15    41    95    Search  Yes   Good    L5    No   Yes   
+Galileo   24    22    -128  -1    CCLTS   No    NoInfo  L1    No   No    
+Galileo   31    11    18    97    CCLTS   Yes   Good    L1    No   No    
+Galileo   33    27    17    38    CCLTS   Yes   Good    L1    No   No    
+Galileo   24    23    -128  -1    CCLTS   No    NoInfo  L5    No   No    
+Galileo   31    21    18    97    CCLTS   Yes   Good    L5    No   No    
+Galileo   33    17    17    38    CCLTS   Yes   Good    L5    No   No    
+
+GNSS_PostProcessor: 
+Latitude: 31.194652322730576 Longitude: -101.9458253077175
+HorAcc: 367.12497 hDOP: 210.99136
+Uncertainty Ellipse:
+ Major axis: 515.15705 Minor axis: 36.567274 Orientation: 58.658064
+Altitude MSL: 1416.373 HAE: 0 VertAcc: 0
+
+CiscoGNSS: 
+Latitude: 31.188983813899505 Longitude: -101.9559202889008
+HorAcc: 19.233528 hDOP: 124.63588
+Uncertainty Ellipse:
+ Major axis: 19.233528 Minor axis: 19.233528 Orientation: 0
+Altitude MSL: 510.03492 HAE: 0 VertAcc: 0
+
+Last Location Acquired: 
+Latitude: 31.194652322730576 Longitude: -101.9458253077175
+HorAcc: 367.12497 hDOP: 210.99136
+Uncertainty Ellipse:
+ Major axis: 515.15705 Minor axis: 36.567274 Orientation: 58.658064
+Altitude MSL: 1416.373 HAE: 0 VertAcc: 0
+Derivation Type: GNSS_PostProcessor
+Time: 2025-04-21 16:09:32
+
+
+example-146-ap1#

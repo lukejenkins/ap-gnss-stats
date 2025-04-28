@@ -1,0 +1,55 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2025.04.21 10:20:16 =~=~=~=~=~=~=~=~=~=~=~=
+example-102-ap1#show gnss info
+
+GnssState: Started
+ExternalAntenna: false
+Fix: 3D-Fix ValidFix: true Time: 2025-04-21 16:20:37
+Latitude: 31.187877899999997 Longitude: -101.94647519999999
+HorAcc: 39.79311 hDOP: 1.65
+Uncertainty Ellipse:
+ Major axis: 39.79311 Minor axis: 39.79311 Orientation: 0
+Altitude MSL: 1440.497 HAE: 1423.448 VertAcc: 20.977
+NumSat: 7 RangeRes: 7.8 GpGstRms: 141325.6
+pDOP: 2.1 hDOP: 1.65 vDOP: 1.29 nDOP: 0.83 eDOP: 1.43 gDOP: 0 tDOP: 0
+LastFixTime: 2025-04-21 16:20:36
+SatelliteCount: 12
+
+Const.    SatId CNO   Elev. Azim. Signal  Used  Health  Band  LTO  CBEE  
+GPS       1     29    8     36    CCLTS   Yes   Good    L1    No   Yes   
+GPS       11    22    19    186   CCLTS   Yes   Good    L1    No   Yes   
+GPS       14    26    37    100   CCLTS   Yes   Good    L1    No   Yes   
+GPS       19    12    81    3     CCLTS   Yes   Good    L1    No   Yes   
+GPS       22    13    56    84    CCLTS   Yes   Good    L1    No   Yes   
+GPS       1     19    8     36    Search  No    Good    L5    No   Yes   
+GPS       4     11    -128  -1    Search  No    Good    L5    No   Yes   
+GPS       14    21    37    100   Avail   Yes   Good    L5    No   Yes   
+Galileo   12    17    52    85    CCLTS   Yes   Good    L1    No   No    
+Galileo   33    20    14    36    CCLTS   No    Good    L1    No   No    
+Galileo   12    13    52    85    Search  Yes   Good    L5    No   No    
+Galileo   33    17    14    36    CCLTS   Yes   Good    L5    No   No    
+
+GNSS_PostProcessor: 
+Latitude: 31.187785654458011 Longitude: -101.94667562654392
+HorAcc: 86.694195 hDOP: 49.82425
+Uncertainty Ellipse:
+ Major axis: 119.80634 Minor axis: 22.802971 Orientation: 121.04634
+Altitude MSL: 1434.9164 HAE: 0 VertAcc: 0
+
+CiscoGNSS: 
+Latitude: 31.18517566318706 Longitude: -101.9432310060305
+HorAcc: 42.570639 hDOP: 30.696221
+Uncertainty Ellipse:
+ Major axis: 42.570639 Minor axis: 42.570639 Orientation: 0
+Altitude MSL: 589.47824 HAE: 0 VertAcc: 0
+
+Last Location Acquired: 
+Latitude: 31.187785654457699 Longitude: -101.94667562658957
+HorAcc: 86.69424 hDOP: 49.824276
+Uncertainty Ellipse:
+ Major axis: 119.80641 Minor axis: 22.802977 Orientation: 121.04634
+Altitude MSL: 1434.9164 HAE: 0 VertAcc: 0
+Derivation Type: GNSS_PostProcessor
+Time: 2025-04-21 16:20:30
+
+
+example-102-ap1#
