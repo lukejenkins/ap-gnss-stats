@@ -8,14 +8,14 @@ import json
 import logging
 import argparse
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # Add the parent directory to the path so we can import our library
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from lib.parser import GnssInfoParser, __version__
 
-def setup_logger(debug: bool, log_file: str = None) -> logging.Logger:
+def setup_logger(debug: bool = False, log_file: Optional[str] = None) -> logging.Logger:
     """
     Set up the logger for the application.
     
@@ -27,6 +27,10 @@ def setup_logger(debug: bool, log_file: str = None) -> logging.Logger:
         Configured logger instance
     """
     logger = logging.getLogger('ap_gnss_stats')
+    
+    # Remove any existing handlers to avoid duplication
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
     
     log_level = logging.DEBUG if debug else logging.INFO
     logger.setLevel(log_level)
@@ -67,17 +71,16 @@ def generate_output_filename(ap_data: Dict[str, Any], extension: str = 'json') -
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     if 'gnss_timestamp' in ap_data:
         try:
-            # Attempt to parse and format the timestamp from the AP data
-            # This would need to be adjusted based on actual timestamp format
-            parsed_time = ap_data['gnss_timestamp']
-            # Just use it as a string component for now
-            timestamp = parsed_time.replace(' ', '_').replace(':', '').replace('-', '')
+            # Try to parse a standard format timestamp 
+            gnss_time = ap_data['gnss_timestamp']
+            # Remove any special characters that shouldn't be in filenames
+            timestamp = gnss_time.replace(' ', '_').replace(':', '').replace('-', '')
         except Exception:
             pass  # Fall back to current time if parsing fails
             
     return f"{ap_name}_{timestamp}.{extension}"
 
-def parse_files(files: List[str], output_dir: str, debug: bool, log_file: str = None) -> None:
+def parse_files(files: List[str], output_dir: str, debug: bool = False, log_file: Optional[str] = None) -> None:
     """
     Parse multiple log files and output JSON results.
     
@@ -101,6 +104,10 @@ def parse_files(files: List[str], output_dir: str, debug: bool, log_file: str = 
         try:
             logger.info(f"Processing file: {file_path}")
             
+            if not os.path.exists(file_path):
+                logger.error(f"File does not exist: {file_path}")
+                continue
+                
             # Parse the file
             result = parser.parse_file(file_path)
             
@@ -109,7 +116,7 @@ def parse_files(files: List[str], output_dir: str, debug: bool, log_file: str = 
             output_path = os.path.join(output_dir, output_filename)
             
             # Write the result to a JSON file
-            with open(output_path, 'w') as f:
+            with open(output_path, 'w', encoding='utf-8') as f:
                 json.dump(result, f, indent=2)
                 
             logger.info(f"Successfully wrote parsed data to: {output_path}")
