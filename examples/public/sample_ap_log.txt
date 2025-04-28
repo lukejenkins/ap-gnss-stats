@@ -1,0 +1,28 @@
+AP Name : AP-MainOffice-Lobby
+AP Model : C9166I
+MAC Address : 00:11:22:33:44:55
+IP Address : 192.168.10.15
+AP Location : Main Office Building, Lobby Area
+
+GNSS Status : Active and tracking
+Latitude : 37.7749
+Longitude : -122.4194
+Altitude : 15.2 m
+Number of Satellites : 9
+Time Stamp : 2023-08-10 09:30:45
+
+Satellite details:
+ID  Type     SNR(dB)  Azimuth  Elevation  Used
+--  ------   -------  -------  ---------  ----
+01  GPS      34       120      45         Yes
+02  GPS      29       210      30         Yes
+03  GLONASS  31       85       50         Yes
+04  Galileo  28       160      35         Yes
+05  GPS      33       290      40         Yes
+06  GLONASS  25       45       25         Yes
+07  GPS      30       320      55         Yes
+08  Galileo  27       180      20         Yes
+09  GPS      32       250      60         Yes
+
+Location Quality: Good (HDOP: 1.2, VDOP: 1.5)
+Last Update: 5 seconds ago
