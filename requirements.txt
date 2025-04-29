@@ -1,2 +1,0 @@
-# No external dependencies required for basic functionality
-# This file can be updated as needed
