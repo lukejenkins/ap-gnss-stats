@@ -268,8 +268,8 @@ def parse_flexible(content: str) -> Dict[str, Any]:
     """
     result = {
         "raw_data": {},
-        "satellites": [],
-        "parse_time": datetime.now().isoformat()
+        "satellites": []
+        # Removed parse_time from here as it will be included in metadata
     }
     
     # Extract main GNSS metrics from the state section
@@ -404,21 +404,16 @@ def process_file(file_path: str, args: argparse.Namespace) -> Dict[str, Any]:
         
         parsed_data = parse_flexible(content)
         
-        # Add metadata with parser info and timestamp
+        # Add consolidated metadata with parser info, timestamp, and file info
+        # Removed parse_date_time and parser_user as requested
         parsed_data["metadata"] = {
             "parser_version": "1.3.0",
-            "parse_date_time": "",
-            "parser_user": "",
+            "parse_time": datetime.now().isoformat(),
             "input_file": os.path.basename(file_path),
+            "file_path": os.path.basename(file_path),
+            "file_size": os.path.getsize(file_path),
             "processing_time_seconds": time.time() - start_time
         }
-        
-        # Add file info
-        file_info = {
-            "file_path": os.path.basename(file_path),
-            "file_size": os.path.getsize(file_path)
-        }
-        parsed_data["file_info"] = file_info
         
         # Remove raw_data if not requested
         if not args.include_raw and "raw_data" in parsed_data:
@@ -495,21 +490,16 @@ async def process_file_async(file_path: str, args: argparse.Namespace) -> Dict[s
         loop = asyncio.get_event_loop()
         parsed_data = await loop.run_in_executor(None, parse_flexible, content)
         
-        # Add metadata with parser info and timestamp
+        # Add consolidated metadata with parser info, timestamp, and file info
+        # Removed parse_date_time and parser_user as requested
         parsed_data["metadata"] = {
             "parser_version": "1.3.0",
-            "parse_date_time": "",
-            "parser_user": "",
+            "parse_time": datetime.now().isoformat(),
             "input_file": os.path.basename(file_path),
+            "file_path": os.path.basename(file_path),
+            "file_size": os.path.getsize(file_path),
             "processing_time_seconds": time.time() - start_time
         }
-        
-        # Add file info
-        file_info = {
-            "file_path": os.path.basename(file_path),
-            "file_size": os.path.getsize(file_path)
-        }
-        parsed_data["file_info"] = file_info
         
         # Remove raw_data if not requested
         if not args.include_raw and "raw_data" in parsed_data:
