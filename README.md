@@ -2,6 +2,23 @@
 
 Tools for parsing and analyzing GNSS (Global Navigation Satellite System) statistics from Cisco Wi-Fi Access Points.
 
+## To Do List
+
+- [ ] Add parsing of "GNSS_PostProcessor"
+- [ ] Add parsing of "CiscoGNSS"
+- [ ] Add parsing of "Last Location Acquired"
+- [ ] Handle "#show gnss info -> No GNSS detected"
+- [ ] Break out the parsing bits into a library
+- [ ] Add support dotenv for configuration
+- [ ] Add support for SSHing to APs and running the commands
+  - [ ] Add support for multiple SSH connections at once
+- [ ] Add support for parsing "show version" and "show inventory" to get additional info about the APs
+- [ ] Add support for pushing the parsed data to Prometheus and possibly InfluxDB
+- [ ] Add example visualizations using Grafana
+- [ ] Add support for accelerometer sensor data from APs
+- [ ] Add support for pulling AP lists from Cisco DNA Center
+- [ ] Add support for pulling AP lists from netbox
+
 ## AI Disclosure
 
 **Here there be robots!** I *think* they are friendly, but they might just be very good at pretending. You might be a fool if you use this project for anything other than as an example of how silly it can be to use AI to code with.

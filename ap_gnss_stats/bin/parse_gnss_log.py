@@ -6,6 +6,11 @@ This script parses PuTTY logs containing GNSS (Global Navigation Satellite Syste
 information and converts it to a structured JSON format for easier analysis.
 Supports multiple input files and directory wildcard patterns.
 
+IMPORTANT NOTES:
+- All parsing for "show" commands (e.g., "show gnss info", "show clock") is case insensitive.
+  Future parsers for any additional "show" commands must also ignore case.
+- All fields defined in the schema will be present in the output JSON, even if their values are null.
+
 Dependencies:
     - Python 3.7+
     - aiofiles (optional, for async I/O)
@@ -23,7 +28,73 @@ from datetime import datetime
 from pathlib import Path
 import asyncio
 import concurrent.futures
+from collections import OrderedDict
 
+# ================================================================================
+# JSON OUTPUT SCHEMA
+# ================================================================================
+# All fields in this schema will be present in the output, even if their values are null.
+# {
+#   "metadata": {
+#     "parser_version": "string",         # Version of the parser
+#     "parse_time": "ISO-8601 datetime",  # IMPORTANT: Must use dynamic timestamp
+#     "input_file": "string",             # Base filename of the input file
+#     "file_size": number                 # Size of the input file in bytes
+#     # NO parser_user field per requirements
+#     # NO processing_time_seconds field per requirements
+#   },
+#   "main": {
+#     "ap_name": "string | null",                # Access point name extracted from command prompt
+#     "no_gnss_detected": boolean,        # Whether "No GNSS detected" message was found
+#     "show_clock_time": "string | null",        # Clock time from "show clock" command (first occurrence)
+#     
+#     # Fields below are only present if GNSS is detected, otherwise null
+#     "state": "string | null",                  # GNSS state (e.g., "Ready")
+#     "external_antenna": "boolean | null",      # Whether external antenna is used
+#     "fix_type": "string | null",               # Type of fix
+#     "valid_fix": "boolean | null",             # Whether the fix is valid
+#     "gnss_fix_time": "string | null",          # Time of the GNSS fix
+#     "last_fix_time": "string | null",          # Time of the last fix
+#     "latitude": "number | null",               # Latitude in degrees
+#     "longitude": "number | null",              # Longitude in degrees
+#     "horacc": "number | null",                 # Horizontal accuracy
+#     "horacc_hdop": "number | null",            # Horizontal dilution of precision
+#     "altitude_msl": "number | null",           # Altitude above mean sea level
+#     "altitude_hae": "number | null",           # Height above ellipsoid
+#     "vertacc": "number | null",                # Vertical accuracy
+#     "numsat": "number | null",                 # Number of satellites used
+#     "rangeres": "number | null",               # Range residual
+#     "gpgstrms": "number | null",               # GPGST RMS value
+#     "satellitecount": "number | null",         # Total satellite count
+#     
+#     # Uncertainty ellipse (if available, otherwise null)
+#     "uncertainty_ellipse_major_axis": "number | null",    # Major axis of uncertainty ellipse
+#     "uncertainty_ellipse_minor_axis": "number | null",    # Minor axis of uncertainty ellipse
+#     "uncertainty_ellipse_orientation": "number | null",   # Orientation of uncertainty ellipse
+#     
+#     # DOP parameters (if available, otherwise null)
+#     "pdop": "number | null",                   # Position dilution of precision
+#     "hdop": "number | null",                   # Horizontal dilution of precision
+#     "vdop": "number | null",                   # Vertical dilution of precision
+#     "ndop": "number | null",                   # North dilution of precision
+#     "edop": "number | null",                   # East dilution of precision
+#     "gdop": "number | null",                   # Geometric dilution of precision
+#     "tdop": "number | null"                    # Time dilution of precision
+#   },
+#   "satellites": [                       # Array of satellite objects, may be empty
+#     {
+#       "constellation": "string",        # Satellite constellation (GPS, GLONASS, Galileo, BeiDou)
+#       "prn": number,                    # Satellite PRN number
+#       "elevation": number,              # Elevation angle in degrees
+#       "azimuth": number,                # Azimuth angle in degrees
+#       "snr": number,                    # Signal-to-noise ratio
+#       "used": boolean                   # Whether the satellite is used in the solution
+#       # Additional fields may be present depending on the input data
+#     }
+#   ]
+#   # "raw_data" section is optional and only included if --include-raw is specified
+# }
+# ================================================================================
 
 # Check if aiofiles is available for async I/O
 try:
@@ -59,7 +130,8 @@ def examine_file(file_path: str) -> Dict[str, Any]:
         patterns = [
             "PuTTY log", "show gnss info", "GnssState:", "Latitude:", "Longitude:",
             "SatelliteCount:", "Constellation", "GPS", "Galileo", "Elevation",
-            "Azimuth", "GNSS_PostProcessor", "CiscoGNSS"
+            "Azimuth", "GNSS_PostProcessor", "CiscoGNSS", "No GNSS detected",
+            "show clock"
         ]
         
         pattern_matches = {}
@@ -79,7 +151,7 @@ def examine_file(file_path: str) -> Dict[str, Any]:
         # Try to determine the format
         if "PuTTY log" in content:
             file_info["likely_format"] = "PuTTY log"
-        elif "show gnss info" in content.lower():
+        elif re.search(r'show gnss info', content, re.IGNORECASE):
             file_info["likely_format"] = "GNSS info output"
         elif "gnss" in content.lower() and ("latitude" in content.lower() or "longitude" in content.lower()):
             file_info["likely_format"] = "GNSS data (alternative format)"
@@ -121,7 +193,8 @@ async def examine_file_async(file_path: str) -> Dict[str, Any]:
         patterns = [
             "PuTTY log", "show gnss info", "GnssState:", "Latitude:", "Longitude:",
             "SatelliteCount:", "Constellation", "GPS", "Galileo", "Elevation",
-            "Azimuth", "GNSS_PostProcessor", "CiscoGNSS"
+            "Azimuth", "GNSS_PostProcessor", "CiscoGNSS", "No GNSS detected",
+            "show clock"
         ]
         
         pattern_matches = {}
@@ -141,7 +214,7 @@ async def examine_file_async(file_path: str) -> Dict[str, Any]:
         # Try to determine the format
         if "PuTTY log" in content:
             file_info["likely_format"] = "PuTTY log"
-        elif "show gnss info" in content.lower():
+        elif re.search(r'show gnss info', content, re.IGNORECASE):
             file_info["likely_format"] = "GNSS info output"
         elif "gnss" in content.lower() and ("latitude" in content.lower() or "longitude" in content.lower()):
             file_info["likely_format"] = "GNSS data (alternative format)"
@@ -157,6 +230,89 @@ async def examine_file_async(file_path: str) -> Dict[str, Any]:
         }
 
 
+def extract_ap_name(content: str) -> str:
+    """
+    Extract the AP name from the content.
+    
+    Args:
+        content: Raw file content
+        
+    Returns:
+        String containing the AP name, or empty string if not found
+    """
+    # Look for pattern: <name>#show gnss info
+    # Updated pattern to correctly match only up to the # in the line and be case insensitive
+    pattern = r'(?:^|\n)([^\n#]+)#show gnss info'
+    match = re.search(pattern, content, re.IGNORECASE)
+    
+    if match:
+        return match.group(1).strip()
+    
+    return ""
+
+
+def extract_show_clock_time(content: str) -> str:
+    """
+    Extract the clock time from 'show clock' command output.
+    
+    Args:
+        content: Raw file content
+        
+    Returns:
+        String containing the clock time, or empty string if not found
+    """
+    # Look for pattern: #show clock followed by a time line like *23:34:47 UTC+0000 Tue Apr 29 2025
+    # Make it case insensitive
+    pattern = r'show clock\s*\n\s*\*([^\n]+)'
+    match = re.search(pattern, content, re.IGNORECASE)
+    
+    if match:
+        return match.group(1).strip()
+    
+    return ""
+
+
+def get_default_main_metrics() -> Dict[str, Any]:
+    """
+    Get default metrics dictionary with all expected fields initialized to None.
+    
+    Returns:
+        Dictionary with all metrics fields set to None
+    """
+    return {
+        "ap_name": None,
+        "no_gnss_detected": False,
+        "show_clock_time": None,
+        "state": None,
+        "external_antenna": None,
+        "fix_type": None,
+        "valid_fix": None,
+        "gnss_fix_time": None,
+        "last_fix_time": None,
+        "latitude": None,
+        "longitude": None,
+        "horacc": None,
+        "horacc_hdop": None,
+        "altitude_msl": None,
+        "altitude_hae": None,
+        "vertacc": None,
+        "numsat": None,
+        "rangeres": None,
+        "gpgstrms": None,
+        "satellitecount": None,
+        "uncertainty_ellipse_major_axis": None,
+        "uncertainty_ellipse_minor_axis": None,
+        "uncertainty_ellipse_orientation": None,
+        "pdop": None,
+        "hdop": None,
+        "vdop": None,
+        "ndop": None,
+        "edop": None,
+        "gdop": None,
+        "tdop": None
+    }
+
+
 def extract_gnss_metrics(content: str) -> Dict[str, Any]:
     """
     Extract main GNSS metrics from the content.
@@ -167,20 +323,46 @@ def extract_gnss_metrics(content: str) -> Dict[str, Any]:
     Returns:
         Dictionary of GNSS metrics
     """
-    metrics = {}
+    # Initialize metrics dictionary with all expected fields set to None
+    metrics = get_default_main_metrics()
+    
+    # Extract AP name and add it to the metrics
+    ap_name = extract_ap_name(content)
+    if ap_name:
+        metrics["ap_name"] = ap_name
+    
+    # Extract clock time from 'show clock' command
+    show_clock_time = extract_show_clock_time(content)
+    if show_clock_time:
+        metrics["show_clock_time"] = show_clock_time
+    
+    # Check for "No GNSS detected" message
+    # Look for pattern of "show gnss info" followed by "No GNSS detected"
+    # Make it case insensitive
+    no_gnss_pattern = r'show gnss info\s*\n\s*No GNSS detected'
+    metrics["no_gnss_detected"] = bool(re.search(no_gnss_pattern, content, re.IGNORECASE))
+    
+    # If no GNSS detected, we can return early as there won't be any metrics
+    if metrics["no_gnss_detected"]:
+        return metrics
     
     # Extract the GNSS state section
     gnss_state_start = content.find("GnssState:")
     if gnss_state_start == -1:
-        return metrics
-        
+        # Try case insensitive search
+        match = re.search(r'gnssstate:', content, re.IGNORECASE)
+        if match:
+            gnss_state_start = match.start()
+        else:
+            return metrics
+    
     # Find the end of the state section (satellite table start)
-    sat_table_start = content.find("Const.", gnss_state_start)
-    if sat_table_start == -1:
+    sat_table_start = re.search(r'Const\.', content[gnss_state_start:], re.IGNORECASE)
+    if sat_table_start:
+        state_section = content[gnss_state_start:gnss_state_start + sat_table_start.start()]
+    else:
         # If satellite table not found, use a large section
         state_section = content[gnss_state_start:]
-    else:
-        state_section = content[gnss_state_start:sat_table_start]
     
     # Define patterns for each metric
     patterns = {
@@ -204,7 +386,7 @@ def extract_gnss_metrics(content: str) -> Dict[str, Any]:
     
     # Extract uncertainty ellipse separately
     uncertainty_pattern = r"Uncertainty Ellipse:\s*Major axis:\s*([\d\.]+)\s*Minor axis:\s*([\d\.]+)\s*Orientation:\s*([\d\.]+)"
-    uncertainty_match = re.search(uncertainty_pattern, state_section)
+    uncertainty_match = re.search(uncertainty_pattern, state_section, re.IGNORECASE)
     
     if uncertainty_match:
         metrics["uncertainty_ellipse_major_axis"] = float(uncertainty_match.group(1))
@@ -213,7 +395,7 @@ def extract_gnss_metrics(content: str) -> Dict[str, Any]:
     
     # Extract DOP parameters - these might be presented together in a line
     dop_pattern = r"pDOP:\s*([\d\.]+)\s+hDOP:\s*([\d\.]+)\s+vDOP:\s*([\d\.]+)\s+nDOP:\s*([\d\.]+)\s+eDOP:\s*([\d\.]+)\s+gDOP:\s*([\d\.]+)\s+tDOP:\s*([\d\.]+)"
-    dop_match = re.search(dop_pattern, state_section)
+    dop_match = re.search(dop_pattern, state_section, re.IGNORECASE)
     
     if dop_match:
         metrics["pdop"] = float(dop_match.group(1))
@@ -226,14 +408,14 @@ def extract_gnss_metrics(content: str) -> Dict[str, Any]:
     
     # Extract first hDOP value separately (may appear before the DOP section)
     horacc_hdop_pattern = r"HorAcc:\s*[\d\.]+\s+hDOP:\s*([\d\.]+)"
-    horacc_hdop_match = re.search(horacc_hdop_pattern, state_section)
+    horacc_hdop_match = re.search(horacc_hdop_pattern, state_section, re.IGNORECASE)
     
     if horacc_hdop_match:
         metrics["horacc_hdop"] = float(horacc_hdop_match.group(1))
     
     # Process the main patterns
     for key, pattern in patterns.items():
-        match = re.search(pattern, state_section)
+        match = re.search(pattern, state_section, re.IGNORECASE)
         if match:
             value = match.group(1)
             if key in ["external_antenna", "valid_fix"]:
@@ -269,11 +451,14 @@ def parse_flexible(content: str) -> Dict[str, Any]:
     result = {
         "raw_data": {},
         "satellites": []
-        # Removed parse_time from here as it will be included in metadata
     }
     
     # Extract main GNSS metrics from the state section
-    result["main_gnss_metrics"] = extract_gnss_metrics(content)
+    result["main"] = extract_gnss_metrics(content)  # Renamed from main_gnss_metrics to main
+    
+    # If no GNSS detected, we can skip parsing detailed data
+    if result["main"].get("no_gnss_detected", False):
+        return result
     
     # Look for key-value pairs with flexible pattern for raw_data
     kv_pattern = r'([A-Za-z0-9_]+(?:\s+[A-Za-z0-9_]+)*)(?:\s*:)\s*([\d\.\-]+|[A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*)'
@@ -295,8 +480,11 @@ def parse_flexible(content: str) -> Dict[str, Any]:
                 result["raw_data"][key] = value
     
     # Look for satellite data in table format
-    table_start = content.find("Const.")
-    if table_start >= 0:
+    # Make the search case insensitive
+    table_match = re.search(r'Const\.', content, re.IGNORECASE)
+    
+    if table_match:
+        table_start = table_match.start()
         table_lines = content[table_start:].split('\n')
         headers = re.split(r'\s+', table_lines[0].strip())
         
@@ -307,7 +495,7 @@ def parse_flexible(content: str) -> Dict[str, Any]:
                 continue
                 
             # Check if this looks like satellite data (starts with GPS, GLONASS, Galileo, etc.)
-            if any(line.startswith(system) for system in ["GPS", "GLONASS", "Galileo", "BeiDou"]):
+            if any(line.upper().startswith(system) for system in ["GPS", "GLONASS", "GALILEO", "BEIDOU"]):
                 parts = re.split(r'\s+', line)
                 if len(parts) >= 5:  # Minimal validation - needs at least a few columns
                     satellite = {"constellation": parts[0]}
@@ -327,11 +515,45 @@ def parse_flexible(content: str) -> Dict[str, Any]:
                             satellite[key] = parts[j]
                     
                     result["satellites"].append(satellite)
-            elif line.startswith("=") or "example-" in line:
+            elif re.match(r'^=', line) or re.search(r'example-', line, re.IGNORECASE):
                 # End of table detected
                 break
     
     return result
+
+
+def reorder_json(data: Dict[str, Any]) -> OrderedDict:
+    """
+    Reorder the JSON data to have metadata first, then main, then satellites.
+    
+    Args:
+        data: Original data dictionary
+        
+    Returns:
+        OrderedDict with keys in the desired order
+    """
+    ordered = OrderedDict()
+    
+    # Add sections in the desired order
+    if "metadata" in data:
+        ordered["metadata"] = data["metadata"]
+    
+    if "main" in data:
+        ordered["main"] = data["main"]
+    
+    if "satellites" in data:
+        ordered["satellites"] = data["satellites"]
+    
+    # Add any other sections that might exist
+    for key, value in data.items():
+        if key not in ["metadata", "main", "satellites", "raw_data"]:
+            ordered[key] = value
+    
+    # Add raw_data at the end if it exists and is requested
+    if "raw_data" in data:
+        ordered["raw_data"] = data["raw_data"]
+    
+    return ordered
 
 
 def expand_file_paths(paths: List[str]) -> Set[str]:
@@ -404,20 +626,23 @@ def process_file(file_path: str, args: argparse.Namespace) -> Dict[str, Any]:
         
         parsed_data = parse_flexible(content)
         
-        # Add consolidated metadata with parser info, timestamp, and file info
-        # Removed parse_date_time and parser_user as requested
+        # Add consolidated metadata with parser info and timestamp
+        # Follow schema requirements: include parser_version, parse_time, input_file, file_size
+        # NO parser_user field per requirements
+        # NO processing_time_seconds field per requirements
         parsed_data["metadata"] = {
             "parser_version": "1.3.0",
-            "parse_time": datetime.now().isoformat(),
+            "parse_time": datetime.now().isoformat(),  # IMPORTANT: Must use dynamic timestamp
             "input_file": os.path.basename(file_path),
-            "file_path": os.path.basename(file_path),
-            "file_size": os.path.getsize(file_path),
-            "processing_time_seconds": time.time() - start_time
+            "file_size": os.path.getsize(file_path)
         }
         
         # Remove raw_data if not requested
         if not args.include_raw and "raw_data" in parsed_data:
             del parsed_data["raw_data"]
+        
+        # Reorder the JSON fields as requested
+        parsed_data = reorder_json(parsed_data)
         
         # Output the parsed data
         output_path = args.output_dir or os.path.dirname(file_path) or '.'
@@ -428,7 +653,7 @@ def process_file(file_path: str, args: argparse.Namespace) -> Dict[str, Any]:
         
         with open(output_file, 'w', encoding='utf-8') as f:
             json_indent = 4 if args.pretty else 2
-            sort_keys = args.pretty
+            sort_keys = False  # Don't sort keys because we want to preserve our custom order
             json.dump(parsed_data, f, indent=json_indent, sort_keys=sort_keys, ensure_ascii=False)
         
         return {
@@ -436,7 +661,7 @@ def process_file(file_path: str, args: argparse.Namespace) -> Dict[str, Any]:
             "output_path": output_file,
             "status": "success",
             "processing_time": time.time() - start_time,
-            "metrics_found": bool(parsed_data.get("main_gnss_metrics")),
+            "metrics_found": bool(parsed_data.get("main")),
             "satellites_found": len(parsed_data.get("satellites", []))
         }
         
@@ -490,20 +715,23 @@ async def process_file_async(file_path: str, args: argparse.Namespace) -> Dict[s
         loop = asyncio.get_event_loop()
         parsed_data = await loop.run_in_executor(None, parse_flexible, content)
         
-        # Add consolidated metadata with parser info, timestamp, and file info
-        # Removed parse_date_time and parser_user as requested
+        # Add consolidated metadata with parser info and timestamp
+        # Follow schema requirements: include parser_version, parse_time, input_file, file_size
+        # NO parser_user field per requirements
+        # NO processing_time_seconds field per requirements
         parsed_data["metadata"] = {
             "parser_version": "1.3.0",
-            "parse_time": datetime.now().isoformat(),
+            "parse_time": datetime.now().isoformat(),  # IMPORTANT: Must use dynamic timestamp
             "input_file": os.path.basename(file_path),
-            "file_path": os.path.basename(file_path),
-            "file_size": os.path.getsize(file_path),
-            "processing_time_seconds": time.time() - start_time
+            "file_size": os.path.getsize(file_path)
         }
         
         # Remove raw_data if not requested
         if not args.include_raw and "raw_data" in parsed_data:
             del parsed_data["raw_data"]
+        
+        # Reorder the JSON fields as requested
+        parsed_data = reorder_json(parsed_data)
         
         # Output the parsed data
         output_path = args.output_dir or os.path.dirname(file_path) or '.'
@@ -513,7 +741,7 @@ async def process_file_async(file_path: str, args: argparse.Namespace) -> Dict[s
                                   f"{os.path.splitext(os.path.basename(file_path))[0]}.json")
         
         json_indent = 4 if args.pretty else 2
-        sort_keys = args.pretty
+        sort_keys = False  # Don't sort keys because we want to preserve our custom order
         json_data = json.dumps(parsed_data, indent=json_indent, sort_keys=sort_keys, ensure_ascii=False)
         
         async with aiofiles.open(output_file, 'w', encoding='utf-8') as f:
@@ -524,7 +752,7 @@ async def process_file_async(file_path: str, args: argparse.Namespace) -> Dict[s
             "output_path": output_file,
             "status": "success",
             "processing_time": time.time() - start_time,
-            "metrics_found": bool(parsed_data.get("main_gnss_metrics")),
+            "metrics_found": bool(parsed_data.get("main")),
             "satellites_found": len(parsed_data.get("satellites", []))
         }
         

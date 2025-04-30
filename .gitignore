@@ -38,7 +38,8 @@ htmlcov/
 output/
 
 # Private examples - important to keep these out of the repository
-examples/private/
+!examples/private/
+examples/private/*
 ## But we do want to have the readme
 !examples/private/README.md
 
