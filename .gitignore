@@ -39,6 +39,8 @@ output/
 
 # Private examples - important to keep these out of the repository
 examples/private/
+## But we do want to have the readme
+!examples/private/README.md
 
 # https://github.com/github/gitignore/blob/main/Global/macOS.gitignore
 ## General
