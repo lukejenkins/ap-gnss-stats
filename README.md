@@ -4,10 +4,10 @@ Tools for parsing and analyzing GNSS (Global Navigation Satellite System) statis
 
 ## To Do List
 
-- [ ] Add parsing of "GNSS_PostProcessor"
+- [X] Add parsing of "GNSS_PostProcessor"
 - [ ] Add parsing of "CiscoGNSS"
 - [ ] Add parsing of "Last Location Acquired"
-- [ ] Handle "#show gnss info -> No GNSS detected"
+- [X] Handle "#show gnss info -> No GNSS detected"
 - [ ] Break out the parsing bits into a library
 - [ ] Add support dotenv for configuration
 - [ ] Add support for SSHing to APs and running the commands
