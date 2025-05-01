@@ -665,10 +665,19 @@ def extract_show_version_metrics(content: str) -> Dict[str, Any]:
         metrics["last_reload_time"] = reload_time_match.group(1).strip()
 
     # last_reload_reason: Last reload reason : X
-    reload_reason_match = re.search(r'Last reload reason\s*:\s*([^\n]*)', section)
-    if reload_reason_match:
-        value = reload_reason_match.group(1).strip()
-        metrics["last_reload_reason"] = value if value else None
+    last_reload_reason_match = re.search(
+        r"^Last reload reason\s*:\s*(.*)$", section, re.MULTILINE
+    )
+    if last_reload_reason_match:
+        # Defensive: If the entire line is just 'Last reload reason :' (with or without whitespace), set to None
+        if last_reload_reason_match.group(0).strip() == "Last reload reason :":
+            metrics["last_reload_reason"] = None
+        else:
+            value = last_reload_reason_match.group(1)
+            if value.strip() == "":
+                metrics["last_reload_reason"] = None
+            else:
+                metrics["last_reload_reason"] = value
 
     # ethernet_mac_address: Base ethernet MAC Address            : AA:BB:CC:DD:EE:FF
     mac_match = re.search(r'Base ethernet MAC Address\s*:\s*([^\n]+)', section)
