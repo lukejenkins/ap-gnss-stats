@@ -23,7 +23,7 @@ import os
 import sys
 import glob
 import time
-from typing import Dict, List, Any, Optional, Union, Set
+from typing import Dict, List, Any, Optional, Union, Set, Tuple
 from datetime import datetime
 from pathlib import Path
 import asyncio
@@ -44,9 +44,11 @@ from collections import OrderedDict
 #     # NO processing_time_seconds field per requirements
 #   },
 #   "main": {
-#     "ap_name": "string | null",                # Access point name extracted from command prompt
+#     "ap_name": "string | null",         # Access point name extracted from command prompt
+#     "show_clock_time": "string | null"  # Clock time from "show clock" command (first occurrence)
+#   },
+#   "gnss_state": {
 #     "no_gnss_detected": boolean,        # Whether "No GNSS detected" message was found
-#     "show_clock_time": "string | null",        # Clock time from "show clock" command (first occurrence)
 #     
 #     # Fields below are only present if GNSS is detected, otherwise null
 #     "state": "string | null",                  # GNSS state (e.g., "Ready")
@@ -327,15 +329,26 @@ def extract_show_clock_time(content: str) -> str:
 
 def get_default_main_metrics() -> Dict[str, Any]:
     """
-    Get default metrics dictionary with all expected fields initialized to None.
+    Get default main metrics dictionary with all expected fields initialized to None.
     
     Returns:
-        Dictionary with all metrics fields set to None
+        Dictionary with main metrics fields set to None
     """
     return {
         "ap_name": None,
+        "show_clock_time": None
+    }
+
+
+def get_default_gnss_state_metrics() -> Dict[str, Any]:
+    """
+    Get default GNSS state metrics dictionary with all expected fields initialized to None.
+    
+    Returns:
+        Dictionary with GNSS state metrics fields set to None
+    """
+    return {
         "no_gnss_detected": False,
-        "show_clock_time": None,
         "state": None,
         "external_antenna": None,
         "fix_type": None,
@@ -437,38 +450,39 @@ def get_default_last_location_acquired_metrics() -> Dict[str, Any]:
     }
 
 
-def extract_gnss_metrics(content: str) -> Dict[str, Any]:
+def extract_gnss_metrics(content: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
-    Extract main GNSS metrics from the content.
+    Extract main and GNSS state metrics from the content.
     
     Args:
         content: Raw file content
         
     Returns:
-        Dictionary of GNSS metrics
+        Tuple of (main metrics dictionary, gnss state metrics dictionary)
     """
-    # Initialize metrics dictionary with all expected fields set to None
-    metrics = get_default_main_metrics()
+    # Initialize metrics dictionaries with all expected fields
+    main_metrics = get_default_main_metrics()
+    gnss_state_metrics = get_default_gnss_state_metrics()
     
-    # Extract AP name and add it to the metrics
+    # Extract AP name and add it to the main metrics
     ap_name = extract_ap_name(content)
     if ap_name:
-        metrics["ap_name"] = ap_name
+        main_metrics["ap_name"] = ap_name
     
-    # Extract clock time from 'show clock' command
+    # Extract clock time from 'show clock' command and add to main metrics
     show_clock_time = extract_show_clock_time(content)
     if show_clock_time:
-        metrics["show_clock_time"] = show_clock_time
+        main_metrics["show_clock_time"] = show_clock_time
     
     # Check for "No GNSS detected" message
     # Look for pattern of "show gnss info" followed by "No GNSS detected"
     # Make it case insensitive
     no_gnss_pattern = r'show gnss info\s*\n\s*No GNSS detected'
-    metrics["no_gnss_detected"] = bool(re.search(no_gnss_pattern, content, re.IGNORECASE))
+    gnss_state_metrics["no_gnss_detected"] = bool(re.search(no_gnss_pattern, content, re.IGNORECASE))
     
     # If no GNSS detected, we can return early as there won't be any metrics
-    if metrics["no_gnss_detected"]:
-        return metrics
+    if gnss_state_metrics["no_gnss_detected"]:
+        return main_metrics, gnss_state_metrics
     
     # Extract the GNSS state section
     gnss_state_start = content.find("GnssState:")
@@ -478,7 +492,7 @@ def extract_gnss_metrics(content: str) -> Dict[str, Any]:
         if match:
             gnss_state_start = match.start()
         else:
-            return metrics
+            return main_metrics, gnss_state_metrics
     
     # Find the end of the state section (satellite table start)
     sat_table_start = re.search(r'Const\.', content[gnss_state_start:], re.IGNORECASE)
@@ -513,29 +527,29 @@ def extract_gnss_metrics(content: str) -> Dict[str, Any]:
     uncertainty_match = re.search(uncertainty_pattern, state_section, re.IGNORECASE)
     
     if uncertainty_match:
-        metrics["uncertainty_ellipse_major_axis"] = float(uncertainty_match.group(1))
-        metrics["uncertainty_ellipse_minor_axis"] = float(uncertainty_match.group(2))
-        metrics["uncertainty_ellipse_orientation"] = float(uncertainty_match.group(3))
+        gnss_state_metrics["uncertainty_ellipse_major_axis"] = float(uncertainty_match.group(1))
+        gnss_state_metrics["uncertainty_ellipse_minor_axis"] = float(uncertainty_match.group(2))
+        gnss_state_metrics["uncertainty_ellipse_orientation"] = float(uncertainty_match.group(3))
     
     # Extract DOP parameters - these might be presented together in a line
     dop_pattern = r"pDOP:\s*([\d\.]+)\s+hDOP:\s*([\d\.]+)\s+vDOP:\s*([\d\.]+)\s+nDOP:\s*([\d\.]+)\s+eDOP:\s*([\d\.]+)\s+gDOP:\s*([\d\.]+)\s+tDOP:\s*([\d\.]+)"
     dop_match = re.search(dop_pattern, state_section, re.IGNORECASE)
     
     if dop_match:
-        metrics["pdop"] = float(dop_match.group(1))
-        metrics["hdop"] = float(dop_match.group(2))
-        metrics["vdop"] = float(dop_match.group(3))
-        metrics["ndop"] = float(dop_match.group(4))
-        metrics["edop"] = float(dop_match.group(5))
-        metrics["gdop"] = float(dop_match.group(6))
-        metrics["tdop"] = float(dop_match.group(7))
+        gnss_state_metrics["pdop"] = float(dop_match.group(1))
+        gnss_state_metrics["hdop"] = float(dop_match.group(2))
+        gnss_state_metrics["vdop"] = float(dop_match.group(3))
+        gnss_state_metrics["ndop"] = float(dop_match.group(4))
+        gnss_state_metrics["edop"] = float(dop_match.group(5))
+        gnss_state_metrics["gdop"] = float(dop_match.group(6))
+        gnss_state_metrics["tdop"] = float(dop_match.group(7))
     
     # Extract first hDOP value separately (may appear before the DOP section)
     horacc_hdop_pattern = r"HorAcc:\s*[\d\.]+\s+hDOP:\s*([\d\.]+)"
     horacc_hdop_match = re.search(horacc_hdop_pattern, state_section, re.IGNORECASE)
     
     if horacc_hdop_match:
-        metrics["horacc_hdop"] = float(horacc_hdop_match.group(1))
+        gnss_state_metrics["horacc_hdop"] = float(horacc_hdop_match.group(1))
     
     # Process the main patterns
     for key, pattern in patterns.items():
@@ -543,23 +557,23 @@ def extract_gnss_metrics(content: str) -> Dict[str, Any]:
         if match:
             value = match.group(1)
             if key in ["external_antenna", "valid_fix"]:
-                metrics[key] = value.lower() == "true"
+                gnss_state_metrics[key] = value.lower() == "true"
             elif key in ["latitude", "longitude", "horacc", "altitude_msl", 
                         "altitude_hae", "vertacc", "rangeres", "gpgstrms"]:
                 try:
                     # Ensure float values are parsed correctly with full precision
-                    metrics[key] = float(value)
+                    gnss_state_metrics[key] = float(value)
                 except ValueError:
-                    metrics[key] = value
+                    gnss_state_metrics[key] = value
             elif key in ["numsat", "satellitecount"]:
                 try:
-                    metrics[key] = int(value)
+                    gnss_state_metrics[key] = int(value)
                 except ValueError:
-                    metrics[key] = value
+                    gnss_state_metrics[key] = value
             else:
-                metrics[key] = value
+                gnss_state_metrics[key] = value
     
-    return metrics
+    return main_metrics, gnss_state_metrics
 
 
 def extract_gnss_postprocessor_metrics(content: str) -> Dict[str, Any]:
@@ -815,8 +829,12 @@ def parse_flexible(content: str) -> Dict[str, Any]:
         "satellites": []
     }
     
-    # Extract main GNSS metrics from the state section
-    result["main"] = extract_gnss_metrics(content)
+    # Extract main and GNSS state metrics from the content
+    main_metrics, gnss_state_metrics = extract_gnss_metrics(content)
+    
+    # Add both sections to the result
+    result["main"] = main_metrics
+    result["gnss_state"] = gnss_state_metrics
     
     # Extract GNSS_PostProcessor metrics
     result["gnss_postprocessor"] = extract_gnss_postprocessor_metrics(content)
@@ -828,7 +846,7 @@ def parse_flexible(content: str) -> Dict[str, Any]:
     result["last_location_acquired"] = extract_last_location_acquired_metrics(content)
     
     # If no GNSS detected, we can skip parsing detailed data
-    if result["main"].get("no_gnss_detected", False):
+    if gnss_state_metrics["no_gnss_detected"]:
         return result
     
     # Look for key-value pairs with flexible pattern for raw_data
@@ -895,8 +913,8 @@ def parse_flexible(content: str) -> Dict[str, Any]:
 
 def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     """
-    Reorder the JSON data to have metadata first, then main, then gnss_postprocessor,
-    then cisco_gnss, then last_location_acquired, then satellites.
+    Reorder the JSON data to have metadata first, then main, then gnss_state, then 
+    gnss_postprocessor, then cisco_gnss, then last_location_acquired, then satellites.
     
     Args:
         data: Original data dictionary
@@ -913,6 +931,9 @@ def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     if "main" in data:
         ordered["main"] = data["main"]
     
+    if "gnss_state" in data:
+        ordered["gnss_state"] = data["gnss_state"]
+    
     if "gnss_postprocessor" in data:
         ordered["gnss_postprocessor"] = data["gnss_postprocessor"]
     
@@ -927,7 +948,8 @@ def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     
     # Add any other sections that might exist
     for key, value in data.items():
-        if key not in ["metadata", "main", "gnss_postprocessor", "cisco_gnss", "last_location_acquired", "satellites", "raw_data"]:
+        if key not in ["metadata", "main", "gnss_state", "gnss_postprocessor", 
+                      "cisco_gnss", "last_location_acquired", "satellites", "raw_data"]:
             ordered[key] = value
     
     # Add raw_data at the end if it exists and is requested
@@ -1354,7 +1376,7 @@ def main():
         print("Warning: Asynchronous I/O requested but 'aiofiles' package not found.")
         print("Install it with 'pip install aiofiles' or use synchronous mode.")
         args.use_async = False
-    
+        
     # Use async if requested and available
     if args.use_async:
         try:
