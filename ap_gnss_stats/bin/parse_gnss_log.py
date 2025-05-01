@@ -98,6 +98,23 @@ from collections import OrderedDict
 #     "altitude_hae": "number | null",           # Height above ellipsoid in meters from this section
 #     "vertacc": "number | null",                # Vertical accuracy from this section
 #   },
+#   "CiscoGNSS": {
+#     "parser_found": boolean,                   # true if the parser found the string "CiscoGNSS:" in the output of a 'show gnss info' command
+#     "not_available": boolean,                  # true if the output of 'show gnss info' includes the line "CiscoGNSS: N/A"  
+#     "latitude": "number | null",               # Latitude in decimal degrees from this section
+#     "longitude": "number | null",              # Longitude in decimal degrees from this section
+#     "horacc": "number | null",                 # Horizontal accuracy for this section in meters
+#     "horacc_hdop": "number | null",            # Horizontal dilution of precision for this section
+#     
+#     # Uncertainty ellipse from this section (if available, otherwise null)
+#     "uncertainty_ellipse_major_axis": "number | null",    # Major axis of uncertainty ellipse from this section
+#     "uncertainty_ellipse_minor_axis": "number | null",    # Minor axis of uncertainty ellipse from this section
+#     "uncertainty_ellipse_orientation": "number | null",   # Orientation of uncertainty ellipse from this section
+#
+#     "altitude_msl": "number | null",           # Altitude above mean sea level in meters from this section
+#     "altitude_hae": "number | null",           # Height above ellipsoid in meters from this section
+#     "vertacc": "number | null",                # Vertical accuracy from this section
+#   },
 #   "satellites": [                       # Array of satellite objects, may be empty
 #     {
 #       "constellation": "string",        # Satellite constellation (GPS, GLONASS, Galileo, BeiDou)
@@ -353,6 +370,29 @@ def get_default_gnss_postprocessor_metrics() -> Dict[str, Any]:
     }
 
 
+def get_default_cisco_gnss_metrics() -> Dict[str, Any]:
+    """
+    Get default CiscoGNSS metrics dictionary with all expected fields initialized.
+    
+    Returns:
+        Dictionary with all CiscoGNSS metrics fields initialized
+    """
+    return {
+        "parser_found": False,
+        "not_available": False,
+        "latitude": None,
+        "longitude": None,
+        "horacc": None,
+        "horacc_hdop": None,
+        "uncertainty_ellipse_major_axis": None,
+        "uncertainty_ellipse_minor_axis": None,
+        "uncertainty_ellipse_orientation": None,
+        "altitude_msl": None,
+        "altitude_hae": None,
+        "vertacc": None
+    }
+
+
 def extract_gnss_metrics(content: str) -> Dict[str, Any]:
     """
     Extract main GNSS metrics from the content.
@@ -554,6 +594,82 @@ def extract_gnss_postprocessor_metrics(content: str) -> Dict[str, Any]:
     return metrics
 
 
+def extract_cisco_gnss_metrics(content: str) -> Dict[str, Any]:
+    """
+    Extract CiscoGNSS metrics from the content.
+    
+    Args:
+        content: Raw file content
+        
+    Returns:
+        Dictionary of CiscoGNSS metrics
+    """
+    # Initialize metrics dictionary with defaults
+    metrics = get_default_cisco_gnss_metrics()
+    
+    # Check if CiscoGNSS section exists
+    cisco_gnss_match = re.search(r'CiscoGNSS:', content, re.IGNORECASE)
+    if not cisco_gnss_match:
+        return metrics
+    
+    # Mark parser_found as true since we found the section
+    metrics["parser_found"] = True
+    
+    # Check if it's "N/A"
+    if re.search(r'CiscoGNSS:\s*N/A', content, re.IGNORECASE):
+        metrics["not_available"] = True
+        return metrics
+    
+    # Extract the CiscoGNSS section
+    section_start = cisco_gnss_match.start()
+    
+    # Find the end of the section (next major section or end of content)
+    next_section_match = re.search(r'\n\n', content[section_start:])
+    if next_section_match:
+        section_end = section_start + next_section_match.start()
+        section_content = content[section_start:section_end]
+    else:
+        section_content = content[section_start:]
+    
+    # Extract latitude and longitude
+    lat_match = re.search(r'Latitude:\s*([\d\.-]+)', section_content, re.IGNORECASE)
+    if lat_match:
+        metrics["latitude"] = float(lat_match.group(1))
+    
+    lon_match = re.search(r'Longitude:\s*([\d\.-]+)', section_content, re.IGNORECASE)
+    if lon_match:
+        metrics["longitude"] = float(lon_match.group(1))
+    
+    # Extract horizontal accuracy and HDOP
+    horacc_hdop_match = re.search(r'HorAcc:\s*([\d\.]+)\s+hDOP:\s*([\d\.]+)', section_content, re.IGNORECASE)
+    if horacc_hdop_match:
+        metrics["horacc"] = float(horacc_hdop_match.group(1))
+        metrics["horacc_hdop"] = float(horacc_hdop_match.group(2))
+    
+    # Extract uncertainty ellipse
+    uncertainty_match = re.search(r'Major axis:\s*([\d\.]+)\s+Minor axis:\s*([\d\.]+)\s+Orientation:\s*([\d\.]+)', 
+                                 section_content, re.IGNORECASE)
+    if uncertainty_match:
+        metrics["uncertainty_ellipse_major_axis"] = float(uncertainty_match.group(1))
+        metrics["uncertainty_ellipse_minor_axis"] = float(uncertainty_match.group(2))
+        metrics["uncertainty_ellipse_orientation"] = float(uncertainty_match.group(3))
+    
+    # Extract altitude and vertical accuracy
+    alt_msl_match = re.search(r'Altitude MSL:\s*([\d\.]+)', section_content, re.IGNORECASE)
+    if alt_msl_match:
+        metrics["altitude_msl"] = float(alt_msl_match.group(1))
+    
+    alt_hae_match = re.search(r'HAE:\s*([\d\.]+)', section_content, re.IGNORECASE)
+    if alt_hae_match:
+        metrics["altitude_hae"] = float(alt_hae_match.group(1))
+    
+    vertacc_match = re.search(r'VertAcc:\s*([\d\.]+)', section_content, re.IGNORECASE)
+    if vertacc_match:
+        metrics["vertacc"] = float(vertacc_match.group(1))
+    
+    return metrics
+
+
 def parse_flexible(content: str) -> Dict[str, Any]:
     """
     More flexible parser that searches for GNSS data without assuming a specific format.
@@ -574,6 +690,9 @@ def parse_flexible(content: str) -> Dict[str, Any]:
     
     # Extract GNSS_PostProcessor metrics
     result["gnss_postprocessor"] = extract_gnss_postprocessor_metrics(content)
+    
+    # Extract CiscoGNSS metrics
+    result["CiscoGNSS"] = extract_cisco_gnss_metrics(content)
     
     # If no GNSS detected, we can skip parsing detailed data
     if result["main"].get("no_gnss_detected", False):
@@ -643,7 +762,8 @@ def parse_flexible(content: str) -> Dict[str, Any]:
 
 def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     """
-    Reorder the JSON data to have metadata first, then main, then gnss_postprocessor, then satellites.
+    Reorder the JSON data to have metadata first, then main, then gnss_postprocessor,
+    then CiscoGNSS, then satellites.
     
     Args:
         data: Original data dictionary
@@ -663,12 +783,15 @@ def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     if "gnss_postprocessor" in data:
         ordered["gnss_postprocessor"] = data["gnss_postprocessor"]
     
+    if "CiscoGNSS" in data:
+        ordered["CiscoGNSS"] = data["CiscoGNSS"]
+    
     if "satellites" in data:
         ordered["satellites"] = data["satellites"]
     
     # Add any other sections that might exist
     for key, value in data.items():
-        if key not in ["metadata", "main", "gnss_postprocessor", "satellites", "raw_data"]:
+        if key not in ["metadata", "main", "gnss_postprocessor", "CiscoGNSS", "satellites", "raw_data"]:
             ordered[key] = value
     
     # Add raw_data at the end if it exists and is requested
@@ -754,7 +877,7 @@ def process_file(file_path: str, args: argparse.Namespace) -> Dict[str, Any]:
         # NO processing_time_seconds field per requirements
         parsed_data["metadata"] = {
             "parser_version": "1.3.0",
-            "parse_time": "2025-04-30 23:40:27",  # Use the provided UTC timestamp
+            "parse_time": datetime.now().isoformat(),  # IMPORTANT: Must use dynamic timestamp
             "input_file": os.path.basename(file_path),
             "file_size": os.path.getsize(file_path)
         }
@@ -843,7 +966,7 @@ async def process_file_async(file_path: str, args: argparse.Namespace) -> Dict[s
         # NO processing_time_seconds field per requirements
         parsed_data["metadata"] = {
             "parser_version": "1.3.0",
-            "parse_time": "2025-04-30 23:40:27",  # Use the provided UTC timestamp
+            "parse_time": datetime.now().isoformat(),  # IMPORTANT: Must use dynamic timestamp
             "input_file": os.path.basename(file_path),
             "file_size": os.path.getsize(file_path)
         }
