@@ -4,15 +4,15 @@ Tools for parsing and analyzing GNSS (Global Navigation Satellite System) statis
 
 ## To Do List
 
+- [X] Handle "#show gnss info -> No GNSS detected"
 - [X] Add parsing of "GNSS_PostProcessor"
 - [X] Add parsing of "CiscoGNSS"
-- [ ] Add parsing of "Last Location Acquired"
-- [X] Handle "#show gnss info -> No GNSS detected"
+- [X] Add parsing of "Last Location Acquired"
+- [ ] Add support for parsing "show version" and "show inventory" to get additional info about the APs
 - [ ] Break out the parsing bits into a library
 - [ ] Add support dotenv for configuration
 - [ ] Add support for SSHing to APs and running the commands
   - [ ] Add support for multiple SSH connections at once
-- [ ] Add support for parsing "show version" and "show inventory" to get additional info about the APs
 - [ ] Add support for pushing the parsed data to Prometheus and possibly InfluxDB
 - [ ] Add example visualizations using Grafana
 - [ ] Add support for accelerometer sensor data from APs
