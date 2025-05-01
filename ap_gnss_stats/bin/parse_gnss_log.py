@@ -44,23 +44,40 @@ from collections import OrderedDict
 #     # NO processing_time_seconds field per requirements
 #   },
 #   "main": {
-#     "ap_name": "string | null",         # Access point name extracted from command prompt
+#     "main_ap_name": "string | null",         # Access point name extracted from command prompt
 #     "show_clock_time": "string | null"  # Clock time from "show clock" command (first occurrence)
 #   },
 #   "show_version": {
-#     "ap_name": "string | null",         # Access point name from "show version" command
-#     "ap_serial_number": "string | null",# Serial number from "show version" command
-#     "ap_model": "string | null",        # Model number from "show version" command
-#     "ap_image_family": "string | null", # Image family from "show version" command
-#     "ap_image_string": "string | null", # Image string from "show version" command
-#     "ap_running_image": "string | null",# Running image from "show version" command
-#     "ap_uptime_days": "number | null",  # Uptime days from "show version" command
-#     "ap_uptime_hours": "number | null", # Uptime hours from "show version" command
-#     "ap_uptime_minutes": "number | null",# Uptime minutes from "show version" command
-#     "last_reload_time": "string | null",# Last reload time from "show version" command
-#     "last_reload_reason": "string | null",# Last reload reason from "show version" command
-#     "ethernet_mac_address": "string | null",# Ethernet MAC address from "show version" command
-#     "cloud_id": "string | null"         # Cloud ID from "show version" command
+#     "ver_ap_name": "string | null",           # Access point name from "show version" command
+#     "ap_serial_number": "string | null",      # Serial number from "show version" command
+#     "ap_model": "string | null",              # Model number from "show version" command
+#     "ap_image_family": "string | null",       # Image family from "show version" command
+#     "ap_image_string": "string | null",       # Image string from "show version" command
+#     "ap_running_image": "string | null",      # Running image from "show version" command
+#     "ap_uptime_days": "number | null",        # Uptime days from "show version" command
+#     "ap_uptime_hours": "number | null",       # Uptime hours from "show version" command
+#     "ap_uptime_minutes": "number | null",     # Uptime minutes from "show version" command
+#     "last_reload_time": "string | null",      # Last reload time from "show version" command
+#     "last_reload_reason": "string | null",    # Last reload reason from "show version" command
+#     "ethernet_mac_address": "string | null",  # Ethernet MAC address from "show version" command
+#     "cloud_id": "string | null"               # Cloud ID from "show version" command
+#   },
+#   "show_inventory": {
+#     "inv_parser_found": boolean,               # true if the parser found the string "show inventory"
+#     "inv_ap_type": "string | null",        # In 'show inventory', the line "NAME: XXXXX, DESCR: YYYYY YY YYYYYY", where everything between "NAME: " and ", DESCR:" is the value we use
+#     "inv_ap_descr": "string | null",       # In 'show inventory', the line "NAME: XXXXX, DESCR: YYYYY YY YYYYYY", everything after "DESCR: " is the value we use
+#     "inv_ap_pid": "string | null",         # In 'show inventory', the line "PID: XXXXXXXX , VID: YYY, SN: ZZZZZZZZZZ", where everything between "PID: " and " , VID" is the value we use
+#     "inv_ap_vid": "string | null",         # In 'show inventory', the line "PID: XXXXXXXX , VID: YYY, SN: ZZZZZZZZZZ", where everything between "VID: " and ", SN is the value we use
+#     "inv_ap_serial": "string | null",      # In 'show inventory', the line "PID: XXXXXXXX , VID: YYY, SN: ZZZZZZZZZZ", everything after "SN: " is the value we use
+#     "inv_ap_devid": "string | null",       # In 'show inventory', the line "DEVID: XXXXXXXXX", everything after "DEVID: " is the value we use
+#     "inv_usb_detected": "string | null",   # In 'show inventory', the line "Detected            : Yes", everything after the ": " is the value we use
+#     "inv_usb_status": "string | null",     # In 'show inventory', the line "Status              : Enabled", everything after the ": " is the value we use
+#     "inv_usb_pid": "string | null",        # In 'show inventory', the line "Product ID          : 9127", everything after the ": " is the value we use
+#     "inv_usb_vid": "string | null",        # In 'show inventory', the line "Vendor ID           : 6d4", everything after the ": " is the value we use
+#     "inv_usb_manuf": "string | null",      # In 'show inventory', the line "Manufacturer        : Cisco Systems", everything after the ": " is the value we use
+#     "inv_usb_descr": "string | null",      # In 'show inventory', the line "Description         : CW-ACC-GPS1=", everything after the ": " is the value we use
+#     "inv_usb_serial": "string | null",     # In 'show inventory', the line "Serial Number       : ZZZZZZZZZZ", everything after the ": " is the value we use
+#     "inv_usb_max_power": "string | null"    # In 'show inventory', the line "Max Power           : 100 mA", everything after the ": " is the value we use
 #   },
 #   "gnss_state": {
 #     "no_gnss_detected": boolean,        # Whether "No GNSS detected" message was found
@@ -99,7 +116,7 @@ from collections import OrderedDict
 #     "tdop": "number | null"                    # Time dilution of precision
 #   },
 #   "gnss_postprocessor": {
-#     "parser_found": boolean,                   # true if the parser found the string "GNSS_PostProcessor:" in the output of a 'show gnss info' command
+#     "gnss_pp_parser_found": boolean,                   # true if the parser found the string "GNSS_PostProcessor:" in the output of a 'show gnss info' command
 #     "not_available": boolean,                  # true if the output of 'show gnss info' includes the line "GNSS_PostProcessor: N/A"  
 #     "latitude": "number | null",               # Latitude in decimal degrees from this section
 #     "longitude": "number | null",              # Longitude in decimal degrees from this section
@@ -116,7 +133,7 @@ from collections import OrderedDict
 #     "vertacc": "number | null",                # Vertical accuracy from this section
 #   },
 #   "cisco_gnss": {
-#     "parser_found": boolean,                   # true if the parser found the string "CiscoGNSS:" in the output of a 'show gnss info' command
+#     "cisco_gnss_parser_found": boolean,                   # true if the parser found the string "CiscoGNSS:" in the output of a 'show gnss info' command
 #     "not_available": boolean,                  # true if the output of 'show gnss info' includes the line "CiscoGNSS: N/A"  
 #     "latitude": "number | null",               # Latitude in decimal degrees from this section
 #     "longitude": "number | null",              # Longitude in decimal degrees from this section
@@ -133,7 +150,7 @@ from collections import OrderedDict
 #     "vertacc": "number | null",                # Vertical accuracy from this section
 #   },
 #   "last_location_acquired": {
-#     "parser_found": boolean,                   # true if the parser found the string "Last Location Acquired:" in the output of a 'show gnss info' command
+#     "last_location_parser_found": boolean,                   # true if the parser found the string "Last Location Acquired:" in the output of a 'show gnss info' command
 #     "not_available": boolean,                  # true if the output of 'show gnss info' includes the line "Last Location Acquired: N/A"   
 #     "latitude": "number | null",               # Latitude in decimal degrees from this section
 #     "longitude": "number | null",              # Longitude in decimal degrees from this section
@@ -358,7 +375,7 @@ def get_default_main_metrics() -> Dict[str, Any]:
         Dictionary with main metrics fields set to None
     """
     return {
-        "ap_name": None,
+        "main_ap_name": None,
         "show_clock_time": None
     }
 
@@ -410,7 +427,7 @@ def get_default_gnss_postprocessor_metrics() -> Dict[str, Any]:
         Dictionary with all GNSS_PostProcessor metrics fields initialized
     """
     return {
-        "parser_found": False,
+        "gnss_pp_parser_found": False,
         "not_available": False,
         "latitude": None,
         "longitude": None,
@@ -433,7 +450,7 @@ def get_default_cisco_gnss_metrics() -> Dict[str, Any]:
         Dictionary with all cisco_gnss metrics fields initialized
     """
     return {
-        "parser_found": False,
+        "cisco_gnss_parser_found": False,
         "not_available": False,
         "latitude": None,
         "longitude": None,
@@ -456,7 +473,7 @@ def get_default_last_location_acquired_metrics() -> Dict[str, Any]:
         Dictionary with all last_location_acquired metrics fields initialized
     """
     return {
-        "parser_found": False,
+        "last_location_parser_found": False,
         "not_available": False,
         "latitude": None,
         "longitude": None,
@@ -481,7 +498,7 @@ def get_default_show_version_metrics() -> Dict[str, Any]:
         Dictionary with show_version metrics fields set to None
     """
     return {
-        "ap_name": None,
+        "ver_ap_name": None,
         "ap_serial_number": None,
         "ap_model": None,
         "ap_image_family": None,
@@ -495,6 +512,93 @@ def get_default_show_version_metrics() -> Dict[str, Any]:
         "ethernet_mac_address": None,
         "cloud_id": None
     }
+
+def get_default_show_inventory_metrics() -> Dict[str, Any]:
+    """
+    Get default show_inventory metrics dictionary with all expected fields initialized to None.
+    Returns:
+        Dictionary with show_inventory metrics fields set to None
+    """
+    return {
+        "inv_parser_found": False,
+        "inv_ap_type": None,
+        "inv_ap_descr": None,
+        "inv_ap_pid": None,
+        "inv_ap_vid": None,
+        "inv_ap_serial": None,
+        "inv_ap_devid": None,
+        "inv_usb_detected": None,
+        "inv_usb_status": None,
+        "inv_usb_pid": None,
+        "inv_usb_vid": None,
+        "inv_usb_manuf": None,
+        "inv_usb_descr": None,
+        "inv_usb_serial": None,
+        "inv_usb_max_power": None
+    }
+
+def extract_show_inventory_metrics(content: str) -> Dict[str, Any]:
+    """
+    Extract show_inventory metrics from the content.
+    Args:
+        content: Raw file content
+    Returns:
+        Dictionary of show_inventory metrics
+    """
+    metrics = get_default_show_inventory_metrics()
+    # Find the show inventory section (prompt or asterisk style)
+    prompt_match = re.search(r'(^|\n)([^\n#]+)#show inventory([\s\S]+?)(\n\2#)', content, re.IGNORECASE)
+    if prompt_match:
+        section = prompt_match.group(3)
+        metrics["inv_parser_found"] = True
+    else:
+        asterisk_match = re.search(r'\*{5} show inventory \*{5}([\s\S]+?)(?=\n\*{5} )', content, re.IGNORECASE)
+        if asterisk_match:
+            section = asterisk_match.group(1)
+            metrics["inv_parser_found"] = True
+        else:
+            return metrics  # Section not found, return all nulls
+    # Parse NAME and DESCR
+    name_descr_match = re.search(r'NAME: ([^,]+), DESCR: ([^\n]+)', section)
+    if name_descr_match:
+        metrics["inv_ap_type"] = name_descr_match.group(1).strip()
+        metrics["inv_ap_descr"] = name_descr_match.group(2).strip()
+    # Parse PID, VID, SN
+    pid_vid_sn_match = re.search(r'PID: ([^,]+) , VID: ([^,]+), SN: ([^\n]+)', section)
+    if pid_vid_sn_match:
+        metrics["inv_ap_pid"] = pid_vid_sn_match.group(1).strip()
+        metrics["inv_ap_vid"] = pid_vid_sn_match.group(2).strip()
+        metrics["inv_ap_serial"] = pid_vid_sn_match.group(3).strip()
+    # Parse DEVID
+    devid_match = re.search(r'DEVID: ([^\n]+)', section)
+    if devid_match:
+        metrics["inv_ap_devid"] = devid_match.group(1).strip()
+    # Parse USB fields (if present)
+    usb_detected = re.search(r'Detected\s*:\s*([^\n]+)', section)
+    if usb_detected:
+        metrics["inv_usb_detected"] = usb_detected.group(1).strip()
+    usb_status = re.search(r'Status\s*:\s*([^\n]+)', section)
+    if usb_status:
+        metrics["inv_usb_status"] = usb_status.group(1).strip()
+    usb_pid = re.search(r'Product ID\s*:\s*([^\n]+)', section)
+    if usb_pid:
+        metrics["inv_usb_pid"] = usb_pid.group(1).strip()
+    usb_vid = re.search(r'Vendor ID\s*:\s*([^\n]+)', section)
+    if usb_vid:
+        metrics["inv_usb_vid"] = usb_vid.group(1).strip()
+    usb_manuf = re.search(r'Manufacturer\s*:\s*([^\n]+)', section)
+    if usb_manuf:
+        metrics["inv_usb_manuf"] = usb_manuf.group(1).strip()
+    usb_descr = re.search(r'Description\s*:\s*([^\n]+)', section)
+    if usb_descr:
+        metrics["inv_usb_descr"] = usb_descr.group(1).strip()
+    usb_serial = re.search(r'Serial Number\s*:\s*([^\n]+)', section)
+    if usb_serial:
+        metrics["inv_usb_serial"] = usb_serial.group(1).strip()
+    usb_max_power = re.search(r'Max Power\s*:\s*([^\n]+)', section)
+    if usb_max_power:
+        metrics["inv_usb_max_power"] = usb_max_power.group(1).strip()
+    return metrics
 
 def extract_show_version_metrics(content: str) -> Dict[str, Any]:
     """
@@ -524,7 +628,7 @@ def extract_show_version_metrics(content: str) -> Dict[str, Any]:
     # ap_name: <name> uptime is X days, Y hours, Z minutes
     ap_name_match = re.search(r'^(.*?) uptime is (\d+) days, (\d+) hours, (\d+) minutes', section, re.MULTILINE)
     if ap_name_match:
-        metrics["ap_name"] = ap_name_match.group(1).strip()
+        metrics["ver_ap_name"] = ap_name_match.group(1).strip()
         try:
             metrics["ap_uptime_days"] = int(ap_name_match.group(2))
             metrics["ap_uptime_hours"] = int(ap_name_match.group(3))
@@ -596,7 +700,7 @@ def extract_gnss_metrics(content: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # Extract AP name and add it to the main metrics
     ap_name = extract_ap_name(content)
     if ap_name:
-        main_metrics["ap_name"] = ap_name
+        main_metrics["main_ap_name"] = ap_name
     
     # Extract clock time from 'show clock' command and add to main metrics
     show_clock_time = extract_show_clock_time(content)
@@ -724,7 +828,7 @@ def extract_gnss_postprocessor_metrics(content: str) -> Dict[str, Any]:
         return metrics
     
     # Mark parser_found as true since we found the section
-    metrics["parser_found"] = True
+    metrics["gnss_pp_parser_found"] = True
     
     # Check if it's "N/A"
     if re.search(r'GNSS_PostProcessor:\s*N/A', content, re.IGNORECASE):
@@ -800,7 +904,7 @@ def extract_cisco_gnss_metrics(content: str) -> Dict[str, Any]:
         return metrics
     
     # Mark parser_found as true since we found the section
-    metrics["parser_found"] = True
+    metrics["cisco_gnss_parser_found"] = True
     
     # Check if it's "N/A"
     if re.search(r'CiscoGNSS:\s*N/A', content, re.IGNORECASE):
@@ -876,7 +980,7 @@ def extract_last_location_acquired_metrics(content: str) -> Dict[str, Any]:
         return metrics
     
     # Mark parser_found as true since we found the section
-    metrics["parser_found"] = True
+    metrics["last_location_parser_found"] = True
     
     # Check if it's "N/A"
     if re.search(r'Last Location Acquired:\s*N/A', content, re.IGNORECASE):
@@ -976,6 +1080,9 @@ def parse_flexible(content: str) -> Dict[str, Any]:
     # Extract last_location_acquired metrics
     result["last_location_acquired"] = extract_last_location_acquired_metrics(content)
     
+    # Extract show_inventory metrics
+    result["show_inventory"] = extract_show_inventory_metrics(content)
+    
     # If no GNSS detected, we can skip parsing detailed data
     if gnss_state_metrics["no_gnss_detected"]:
         return result
@@ -1044,7 +1151,7 @@ def parse_flexible(content: str) -> Dict[str, Any]:
 
 def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     """
-    Reorder the JSON data to have metadata first, then main, then show_version, then gnss_state, then 
+    Reorder the JSON data to have metadata first, then main, then show_version, then show_inventory, then gnss_state, then 
     gnss_postprocessor, then cisco_gnss, then last_location_acquired, then satellites.
     
     Args:
@@ -1065,6 +1172,9 @@ def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     if "show_version" in data:
         ordered["show_version"] = data["show_version"]
     
+    if "show_inventory" in data:
+        ordered["show_inventory"] = data["show_inventory"]
+    
     if "gnss_state" in data:
         ordered["gnss_state"] = data["gnss_state"]
     
@@ -1082,7 +1192,7 @@ def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     
     # Add any other sections that might exist
     for key, value in data.items():
-        if key not in ["metadata", "main", "show_version", "gnss_state", "gnss_postprocessor", 
+        if key not in ["metadata", "main", "show_version", "show_inventory", "gnss_state", "gnss_postprocessor", 
                       "cisco_gnss", "last_location_acquired", "satellites", "raw_data"]:
             ordered[key] = value
     
