@@ -8,7 +8,8 @@ Tools for parsing and analyzing GNSS (Global Navigation Satellite System) statis
 - [X] Add parsing of "GNSS_PostProcessor"
 - [X] Add parsing of "CiscoGNSS"
 - [X] Add parsing of "Last Location Acquired"
-- [ ] Add support for parsing "show version" and "show inventory" to get additional info about the APs
+- [X] Add support for parsing "show version"
+- [ ] Add support for parsing "show inventory"
 - [ ] Break out the parsing bits into a library
 - [ ] Add support dotenv for configuration
 - [ ] Add support for SSHing to APs and running the commands

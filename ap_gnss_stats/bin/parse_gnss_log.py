@@ -47,6 +47,21 @@ from collections import OrderedDict
 #     "ap_name": "string | null",         # Access point name extracted from command prompt
 #     "show_clock_time": "string | null"  # Clock time from "show clock" command (first occurrence)
 #   },
+#   "show_version": {
+#     "ap_name": "string | null",         # Access point name from "show version" command
+#     "ap_serial_number": "string | null",# Serial number from "show version" command
+#     "ap_model": "string | null",        # Model number from "show version" command
+#     "ap_image_family": "string | null", # Image family from "show version" command
+#     "ap_image_string": "string | null", # Image string from "show version" command
+#     "ap_running_image": "string | null",# Running image from "show version" command
+#     "ap_uptime_days": "number | null",  # Uptime days from "show version" command
+#     "ap_uptime_hours": "number | null", # Uptime hours from "show version" command
+#     "ap_uptime_minutes": "number | null",# Uptime minutes from "show version" command
+#     "last_reload_time": "string | null",# Last reload time from "show version" command
+#     "last_reload_reason": "string | null",# Last reload reason from "show version" command
+#     "ethernet_mac_address": "string | null",# Ethernet MAC address from "show version" command
+#     "cloud_id": "string | null"         # Cloud ID from "show version" command
+#   },
 #   "gnss_state": {
 #     "no_gnss_detected": boolean,        # Whether "No GNSS detected" message was found
 #     
@@ -297,7 +312,7 @@ def extract_ap_name(content: str) -> str:
     """
     # Look for pattern: <name>#show gnss info
     # Updated pattern to correctly match only up to the # in the line and be case insensitive
-    pattern = r'(?:^|\n)([^\n#]+)#show gnss info'
+    pattern = r'(?:^|\n)([^\n#]+)#show '
     match = re.search(pattern, content, re.IGNORECASE)
     
     if match:
@@ -309,21 +324,29 @@ def extract_ap_name(content: str) -> str:
 def extract_show_clock_time(content: str) -> str:
     """
     Extract the clock time from 'show clock' command output.
-    
+
     Args:
         content: Raw file content
-        
+    
     Returns:
         String containing the clock time, or empty string if not found
     """
-    # Look for pattern: #show clock followed by a time line like *23:34:47 UTC+0000 Tue Apr 29 2025
-    # Make it case insensitive
-    pattern = r'show clock\s*\n\s*\*([^\n]+)'
-    match = re.search(pattern, content, re.IGNORECASE)
-    
-    if match:
-        return match.group(1).strip()
-    
+    # Try prompt-based format: #show clock followed by a time line like *23:34:47 UTC+0000 Tue Apr 29 2025
+    pattern_prompt = r'show clock\s*\n\s*\*([^\n]+)'
+    match_prompt = re.search(pattern_prompt, content, re.IGNORECASE)
+    if match_prompt:
+        return match_prompt.group(1).strip()
+
+    # Try asterisk-delimited format: ***** show clock ***** ... *****
+    pattern_asterisk_section = r'\*{5} show clock \*{5}([\s\S]+?)(?=\n\*{5} )'
+    match_asterisk_section = re.search(pattern_asterisk_section, content, re.IGNORECASE)
+    if match_asterisk_section:
+        section = match_asterisk_section.group(1)
+        # Find the first line starting with * (the clock time)
+        for line in section.splitlines():
+            line = line.strip()
+            if line.startswith("*"):
+                return line.lstrip("*").strip()
     return ""
 
 
@@ -448,6 +471,112 @@ def get_default_last_location_acquired_metrics() -> Dict[str, Any]:
         "derivation_type": None,
         "derivation_time": None
     }
+
+
+def get_default_show_version_metrics() -> Dict[str, Any]:
+    """
+    Get default show_version metrics dictionary with all expected fields initialized to None.
+
+    Returns:
+        Dictionary with show_version metrics fields set to None
+    """
+    return {
+        "ap_name": None,
+        "ap_serial_number": None,
+        "ap_model": None,
+        "ap_image_family": None,
+        "ap_image_string": None,
+        "ap_running_image": None,
+        "ap_uptime_days": None,
+        "ap_uptime_hours": None,
+        "ap_uptime_minutes": None,
+        "last_reload_time": None,
+        "last_reload_reason": None,
+        "ethernet_mac_address": None,
+        "cloud_id": None
+    }
+
+def extract_show_version_metrics(content: str) -> Dict[str, Any]:
+    """
+    Extract show_version metrics from the content.
+
+    Args:
+        content: Raw file content
+
+    Returns:
+        Dictionary of show_version metrics
+    """
+    metrics = get_default_show_version_metrics()
+
+    # Find the show version section (prompt or asterisk style)
+    # Prompt-based: <ap name>#show version ... <ap name>#
+    prompt_match = re.search(r'(^|\n)([^\n#]+)#show version[\s\S]+?\n\2#', content, re.IGNORECASE)
+    if prompt_match:
+        section = prompt_match.group(0)
+    else:
+        # Asterisk-based: ***** show version ***** ... *****
+        asterisk_match = re.search(r'\*{5} show version \*{5}[\s\S]+?(?=\n\*{5} )', content, re.IGNORECASE)
+        if asterisk_match:
+            section = asterisk_match.group(0)
+        else:
+            return metrics  # Section not found, return all nulls
+
+    # ap_name: <name> uptime is X days, Y hours, Z minutes
+    ap_name_match = re.search(r'^(.*?) uptime is (\d+) days, (\d+) hours, (\d+) minutes', section, re.MULTILINE)
+    if ap_name_match:
+        metrics["ap_name"] = ap_name_match.group(1).strip()
+        try:
+            metrics["ap_uptime_days"] = int(ap_name_match.group(2))
+            metrics["ap_uptime_hours"] = int(ap_name_match.group(3))
+            metrics["ap_uptime_minutes"] = int(ap_name_match.group(4))
+        except Exception:
+            pass
+
+    # ap_serial_number: Top Assembly Serial Number           : XXXYYYYZZZZ
+    serial_match = re.search(r'Top Assembly Serial Number\s*:\s*([^\n]+)', section)
+    if serial_match:
+        metrics["ap_serial_number"] = serial_match.group(1).strip()
+
+    # ap_model: Product/Model Number                 : AANNNNB-C
+    model_match = re.search(r'Product/Model Number\s*:\s*([^\n]+)', section)
+    if model_match:
+        metrics["ap_model"] = model_match.group(1).strip()
+
+    # ap_image_family and ap_image_string: Cisco AP Software, (ap1g6a), C9166, RELEASE SOFTWARE
+    image_line_match = re.search(r'Cisco AP Software, \(([^)]+)\),\s*([^\n]+)', section)
+    if image_line_match:
+        metrics["ap_image_family"] = image_line_match.group(1).strip()
+        # Everything after "), "
+        after_paren = section[image_line_match.end(1)+2:].split("\n", 1)[0].strip()
+        metrics["ap_image_string"] = after_paren
+
+    # ap_running_image: AP Running Image     : LL.MM.NNN.PPP
+    running_image_match = re.search(r'AP Running Image\s*:\s*([^\n]+)', section)
+    if running_image_match:
+        metrics["ap_running_image"] = running_image_match.group(1).strip()
+
+    # last_reload_time: Last reload time   : Sun Apr 27 15:28:00 UTC 2025
+    reload_time_match = re.search(r'Last reload time\s*:\s*([^\n]+)', section)
+    if reload_time_match:
+        metrics["last_reload_time"] = reload_time_match.group(1).strip()
+
+    # last_reload_reason: Last reload reason : X
+    reload_reason_match = re.search(r'Last reload reason\s*:\s*([^\n]*)', section)
+    if reload_reason_match:
+        value = reload_reason_match.group(1).strip()
+        metrics["last_reload_reason"] = value if value else None
+
+    # ethernet_mac_address: Base ethernet MAC Address            : AA:BB:CC:DD:EE:FF
+    mac_match = re.search(r'Base ethernet MAC Address\s*:\s*([^\n]+)', section)
+    if mac_match:
+        metrics["ethernet_mac_address"] = mac_match.group(1).strip()
+
+    # cloud_id: Cloud ID                             : AAAA-BBBB-CCCC
+    cloud_id_match = re.search(r'Cloud ID\s*:\s*([^\n]+)', section)
+    if cloud_id_match:
+        metrics["cloud_id"] = cloud_id_match.group(1).strip()
+
+    return metrics
 
 
 def extract_gnss_metrics(content: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -834,6 +963,8 @@ def parse_flexible(content: str) -> Dict[str, Any]:
     
     # Add both sections to the result
     result["main"] = main_metrics
+    # Insert show_version section immediately after main
+    result["show_version"] = extract_show_version_metrics(content)
     result["gnss_state"] = gnss_state_metrics
     
     # Extract GNSS_PostProcessor metrics
@@ -913,7 +1044,7 @@ def parse_flexible(content: str) -> Dict[str, Any]:
 
 def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     """
-    Reorder the JSON data to have metadata first, then main, then gnss_state, then 
+    Reorder the JSON data to have metadata first, then main, then show_version, then gnss_state, then 
     gnss_postprocessor, then cisco_gnss, then last_location_acquired, then satellites.
     
     Args:
@@ -930,6 +1061,9 @@ def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     
     if "main" in data:
         ordered["main"] = data["main"]
+    
+    if "show_version" in data:
+        ordered["show_version"] = data["show_version"]
     
     if "gnss_state" in data:
         ordered["gnss_state"] = data["gnss_state"]
@@ -948,7 +1082,7 @@ def reorder_json(data: Dict[str, Any]) -> OrderedDict:
     
     # Add any other sections that might exist
     for key, value in data.items():
-        if key not in ["metadata", "main", "gnss_state", "gnss_postprocessor", 
+        if key not in ["metadata", "main", "show_version", "gnss_state", "gnss_postprocessor", 
                       "cisco_gnss", "last_location_acquired", "satellites", "raw_data"]:
             ordered[key] = value
     
