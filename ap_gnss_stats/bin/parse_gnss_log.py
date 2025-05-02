@@ -30,158 +30,10 @@ import asyncio
 import concurrent.futures
 from collections import OrderedDict
 
-# ================================================================================
-# JSON OUTPUT SCHEMA
-# ================================================================================
-# All fields in this schema will be present in the output, even if their values are null.
-# {
-#   "metadata": {
-#     "parser_version": "string",         # Version of the parser
-#     "parse_time": "ISO-8601 datetime",  # IMPORTANT: Must use dynamic timestamp
-#     "input_file": "string",             # Base filename of the input file
-#     "file_size": number                 # Size of the input file in bytes
-#     # NO parser_user field per requirements
-#     # NO processing_time_seconds field per requirements
-#   },
-#   "main": {
-#     "main_ap_name": "string | null",         # Access point name extracted from command prompt
-#     "show_clock_time": "string | null"  # Clock time from "show clock" command (first occurrence)
-#   },
-#   "show_version": {
-#     "ver_ap_name": "string | null",           # Access point name from "show version" command
-#     "ap_serial_number": "string | null",      # Serial number from "show version" command
-#     "ap_model": "string | null",              # Model number from "show version" command
-#     "ap_image_family": "string | null",       # Image family from "show version" command
-#     "ap_image_string": "string | null",       # Image string from "show version" command
-#     "ap_running_image": "string | null",      # Running image from "show version" command
-#     "ap_uptime_days": "number | null",        # Uptime days from "show version" command
-#     "ap_uptime_hours": "number | null",       # Uptime hours from "show version" command
-#     "ap_uptime_minutes": "number | null",     # Uptime minutes from "show version" command
-#     "last_reload_time": "string | null",      # Last reload time from "show version" command
-#     "last_reload_reason": "string | null",    # Last reload reason from "show version" command
-#     "ethernet_mac_address": "string | null",  # Ethernet MAC address from "show version" command
-#     "cloud_id": "string | null"               # Cloud ID from "show version" command
-#   },
-#   "show_inventory": {
-#     "inv_parser_found": boolean,               # true if the parser found the string "show inventory"
-#     "inv_ap_type": "string | null",        # In 'show inventory', the line "NAME: XXXXX, DESCR: YYYYY YY YYYYYY", where everything between "NAME: " and ", DESCR:" is the value we use
-#     "inv_ap_descr": "string | null",       # In 'show inventory', the line "NAME: XXXXX, DESCR: YYYYY YY YYYYYY", everything after "DESCR: " is the value we use
-#     "inv_ap_pid": "string | null",         # In 'show inventory', the line "PID: XXXXXXXX , VID: YYY, SN: ZZZZZZZZZZ", where everything between "PID: " and " , VID" is the value we use
-#     "inv_ap_vid": "string | null",         # In 'show inventory', the line "PID: XXXXXXXX , VID: YYY, SN: ZZZZZZZZZZ", where everything between "VID: " and ", SN is the value we use
-#     "inv_ap_serial": "string | null",      # In 'show inventory', the line "PID: XXXXXXXX , VID: YYY, SN: ZZZZZZZZZZ", everything after "SN: " is the value we use
-#     "inv_ap_devid": "string | null",       # In 'show inventory', the line "DEVID: XXXXXXXXX", everything after "DEVID: " is the value we use
-#     "inv_usb_detected": "string | null",   # In 'show inventory', the line "Detected            : Yes", everything after the ": " is the value we use
-#     "inv_usb_status": "string | null",     # In 'show inventory', the line "Status              : Enabled", everything after the ": " is the value we use
-#     "inv_usb_pid": "string | null",        # In 'show inventory', the line "Product ID          : 9127", everything after the ": " is the value we use
-#     "inv_usb_vid": "string | null",        # In 'show inventory', the line "Vendor ID           : 6d4", everything after the ": " is the value we use
-#     "inv_usb_manuf": "string | null",      # In 'show inventory', the line "Manufacturer        : Cisco Systems", everything after the ": " is the value we use
-#     "inv_usb_descr": "string | null",      # In 'show inventory', the line "Description         : CW-ACC-GPS1=", everything after the ": " is the value we use
-#     "inv_usb_serial": "string | null",     # In 'show inventory', the line "Serial Number       : ZZZZZZZZZZ", everything after the ": " is the value we use
-#     "inv_usb_max_power": "string | null"    # In 'show inventory', the line "Max Power           : 100 mA", everything after the ": " is the value we use
-#   },
-#   "gnss_state": {
-#     "no_gnss_detected": boolean,        # Whether "No GNSS detected" message was found
-#     
-#     # Fields below are only present if GNSS is detected, otherwise null
-#     "state": "string | null",                  # GNSS state (e.g., "Ready")
-#     "external_antenna": "boolean | null",      # Whether external antenna is used
-#     "fix_type": "string | null",               # Type of fix
-#     "valid_fix": "boolean | null",             # Whether the fix is valid
-#     "gnss_fix_time": "string | null",          # Time of the GNSS fix
-#     "last_fix_time": "string | null",          # Time of the last fix
-#     "latitude": "number | null",               # Latitude in degrees
-#     "longitude": "number | null",              # Longitude in degrees
-#     "horacc": "number | null",                 # Horizontal accuracy
-#     "horacc_hdop": "number | null",            # Horizontal dilution of precision
-#     "altitude_msl": "number | null",           # Altitude above mean sea level
-#     "altitude_hae": "number | null",           # Height above ellipsoid
-#     "vertacc": "number | null",                # Vertical accuracy
-#     "numsat": "number | null",                 # Number of satellites used
-#     "rangeres": "number | null",               # Range residual
-#     "gpgstrms": "number | null",               # GPGST RMS value
-#     "satellitecount": "number | null",         # Total satellite count
-#     
-#     # Uncertainty ellipse (if available, otherwise null)
-#     "uncertainty_ellipse_major_axis": "number | null",    # Major axis of uncertainty ellipse
-#     "uncertainty_ellipse_minor_axis": "number | null",    # Minor axis of uncertainty ellipse
-#     "uncertainty_ellipse_orientation": "number | null",   # Orientation of uncertainty ellipse
-#     
-#     # DOP parameters (if available, otherwise null)
-#     "pdop": "number | null",                   # Position dilution of precision
-#     "hdop": "number | null",                   # Horizontal dilution of precision
-#     "vdop": "number | null",                   # Vertical dilution of precision
-#     "ndop": "number | null",                   # North dilution of precision
-#     "edop": "number | null",                   # East dilution of precision
-#     "gdop": "number | null",                   # Geometric dilution of precision
-#     "tdop": "number | null"                    # Time dilution of precision
-#   },
-#   "gnss_postprocessor": {
-#     "gnss_pp_parser_found": boolean,                   # true if the parser found the string "GNSS_PostProcessor:" in the output of a 'show gnss info' command
-#     "not_available": boolean,                  # true if the output of 'show gnss info' includes the line "GNSS_PostProcessor: N/A"  
-#     "latitude": "number | null",               # Latitude in decimal degrees from this section
-#     "longitude": "number | null",              # Longitude in decimal degrees from this section
-#     "horacc": "number | null",                 # Horizontal accuracy for this section in meters
-#     "horacc_hdop": "number | null",            # Horizontal dilution of precision for this section
-#     
-#     # Uncertainty ellipse from this section (if available, otherwise null)
-#     "uncertainty_ellipse_major_axis": "number | null",    # Major axis of uncertainty ellipse from this section
-#     "uncertainty_ellipse_minor_axis": "number | null",    # Minor axis of uncertainty ellipse from this section
-#     "uncertainty_ellipse_orientation": "number | null",   # Orientation of uncertainty ellipse from this section
-#
-#     "altitude_msl": "number | null",           # Altitude above mean sea level in meters from this section
-#     "altitude_hae": "number | null",           # Height above ellipsoid in meters from this section
-#     "vertacc": "number | null",                # Vertical accuracy from this section
-#   },
-#   "cisco_gnss": {
-#     "cisco_gnss_parser_found": boolean,                   # true if the parser found the string "CiscoGNSS:" in the output of a 'show gnss info' command
-#     "not_available": boolean,                  # true if the output of 'show gnss info' includes the line "CiscoGNSS: N/A"  
-#     "latitude": "number | null",               # Latitude in decimal degrees from this section
-#     "longitude": "number | null",              # Longitude in decimal degrees from this section
-#     "horacc": "number | null",                 # Horizontal accuracy for this section in meters
-#     "horacc_hdop": "number | null",            # Horizontal dilution of precision for this section
-#     
-#     # Uncertainty ellipse from this section (if available, otherwise null)
-#     "uncertainty_ellipse_major_axis": "number | null",    # Major axis of uncertainty ellipse from this section
-#     "uncertainty_ellipse_minor_axis": "number | null",    # Minor axis of uncertainty ellipse from this section
-#     "uncertainty_ellipse_orientation": "number | null",   # Orientation of uncertainty ellipse from this section
-#
-#     "altitude_msl": "number | null",           # Altitude above mean sea level in meters from this section
-#     "altitude_hae": "number | null",           # Height above ellipsoid in meters from this section
-#     "vertacc": "number | null",                # Vertical accuracy from this section
-#   },
-#   "last_location_acquired": {
-#     "last_location_parser_found": boolean,                   # true if the parser found the string "Last Location Acquired:" in the output of a 'show gnss info' command
-#     "not_available": boolean,                  # true if the output of 'show gnss info' includes the line "Last Location Acquired: N/A"   
-#     "latitude": "number | null",               # Latitude in decimal degrees from this section
-#     "longitude": "number | null",              # Longitude in decimal degrees from this section
-#     "horacc": "number | null",                 # Horizontal accuracy for this section in meters
-#     "horacc_hdop": "number | null",            # Horizontal dilution of precision for this section
-#     
-#     # Uncertainty ellipse from this section (if available, otherwise null)
-#     "uncertainty_ellipse_major_axis": "number | null",    # Major axis of uncertainty ellipse from this section
-#     "uncertainty_ellipse_minor_axis": "number | null",    # Minor axis of uncertainty ellipse from this section
-#     "uncertainty_ellipse_orientation": "number | null",   # Orientation of uncertainty ellipse from this section
-#
-#     "altitude_msl": "number | null",           # Altitude above mean sea level in meters from this section
-#     "altitude_hae": "number | null",           # Height above ellipsoid in meters from this section
-#     "vertacc": "number | null",                # Vertical accuracy from this section
-#     "derivation_type": "string | null",        # Value for "Derivation Type:", example outputs include 'GNSS_PostProcessor', and 'GNSS_Receiver'. There may be other values.
-#     "derivation_time": "string | null"         # Time for the values in "last_location_acquired" section.
-#   },
-#   "satellites": [                       # Array of satellite objects, may be empty
-#     {
-#       "constellation": "string",        # Satellite constellation (GPS, GLONASS, Galileo, BeiDou)
-#       "prn": number,                    # Satellite PRN number
-#       "elevation": number,              # Elevation angle in degrees
-#       "azimuth": number,                # Azimuth angle in degrees
-#       "snr": number,                    # Signal-to-noise ratio
-#       "used": boolean                   # Whether the satellite is used in the solution
-#       # Additional fields may be present depending on the input data
-#     }
-#   ]
-#   # "raw_data" section is optional and only included if --include-raw is specified
-# }
-# ================================================================================
+# Update import paths to use relative imports
+# Add the parent directory to sys.path to allow relative imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+from ap_gnss_stats.lib.parsers.gnss_info_parser import GnssInfoParser
 
 # Check if aiofiles is available for async I/O
 try:
@@ -317,901 +169,6 @@ async def examine_file_async(file_path: str) -> Dict[str, Any]:
         }
 
 
-def extract_ap_name(content: str) -> str:
-    """
-    Extract the AP name from the content.
-    
-    Args:
-        content: Raw file content
-        
-    Returns:
-        String containing the AP name, or empty string if not found
-    """
-    # Look for pattern: <name>#show gnss info
-    # Updated pattern to correctly match only up to the # in the line and be case insensitive
-    pattern = r'(?:^|\n)([^\n#]+)#show '
-    match = re.search(pattern, content, re.IGNORECASE)
-    
-    if match:
-        return match.group(1).strip()
-    
-    return ""
-
-
-def extract_show_clock_time(content: str) -> str:
-    """
-    Extract the clock time from 'show clock' command output.
-
-    Args:
-        content: Raw file content
-    
-    Returns:
-        String containing the clock time, or empty string if not found
-    """
-    # Try prompt-based format: #show clock followed by a time line like *23:34:47 UTC+0000 Tue Apr 29 2025
-    pattern_prompt = r'show clock\s*\n\s*\*([^\n]+)'
-    match_prompt = re.search(pattern_prompt, content, re.IGNORECASE)
-    if match_prompt:
-        return match_prompt.group(1).strip()
-
-    # Try asterisk-delimited format: ***** show clock ***** ... *****
-    pattern_asterisk_section = r'\*{5} show clock \*{5}([\s\S]+?)(?=\n\*{5} )'
-    match_asterisk_section = re.search(pattern_asterisk_section, content, re.IGNORECASE)
-    if match_asterisk_section:
-        section = match_asterisk_section.group(1)
-        # Find the first line starting with * (the clock time)
-        for line in section.splitlines():
-            line = line.strip()
-            if line.startswith("*"):
-                return line.lstrip("*").strip()
-    return ""
-
-
-def get_default_main_metrics() -> Dict[str, Any]:
-    """
-    Get default main metrics dictionary with all expected fields initialized to None.
-    
-    Returns:
-        Dictionary with main metrics fields set to None
-    """
-    return {
-        "main_ap_name": None,
-        "show_clock_time": None
-    }
-
-
-def get_default_gnss_state_metrics() -> Dict[str, Any]:
-    """
-    Get default GNSS state metrics dictionary with all expected fields initialized to None.
-    
-    Returns:
-        Dictionary with GNSS state metrics fields set to None
-    """
-    return {
-        "no_gnss_detected": False,
-        "state": None,
-        "external_antenna": None,
-        "fix_type": None,
-        "valid_fix": None,
-        "gnss_fix_time": None,
-        "last_fix_time": None,
-        "latitude": None,
-        "longitude": None,
-        "horacc": None,
-        "horacc_hdop": None,
-        "altitude_msl": None,
-        "altitude_hae": None,
-        "vertacc": None,
-        "numsat": None,
-        "rangeres": None,
-        "gpgstrms": None,
-        "satellitecount": None,
-        "uncertainty_ellipse_major_axis": None,
-        "uncertainty_ellipse_minor_axis": None,
-        "uncertainty_ellipse_orientation": None,
-        "pdop": None,
-        "hdop": None,
-        "vdop": None,
-        "ndop": None,
-        "edop": None,
-        "gdop": None,
-        "tdop": None
-    }
-
-
-def get_default_gnss_postprocessor_metrics() -> Dict[str, Any]:
-    """
-    Get default GNSS_PostProcessor metrics dictionary with all expected fields initialized.
-    
-    Returns:
-        Dictionary with all GNSS_PostProcessor metrics fields initialized
-    """
-    return {
-        "gnss_pp_parser_found": False,
-        "not_available": False,
-        "latitude": None,
-        "longitude": None,
-        "horacc": None,
-        "horacc_hdop": None,
-        "uncertainty_ellipse_major_axis": None,
-        "uncertainty_ellipse_minor_axis": None,
-        "uncertainty_ellipse_orientation": None,
-        "altitude_msl": None,
-        "altitude_hae": None,
-        "vertacc": None
-    }
-
-
-def get_default_cisco_gnss_metrics() -> Dict[str, Any]:
-    """
-    Get default cisco_gnss metrics dictionary with all expected fields initialized.
-    
-    Returns:
-        Dictionary with all cisco_gnss metrics fields initialized
-    """
-    return {
-        "cisco_gnss_parser_found": False,
-        "not_available": False,
-        "latitude": None,
-        "longitude": None,
-        "horacc": None,
-        "horacc_hdop": None,
-        "uncertainty_ellipse_major_axis": None,
-        "uncertainty_ellipse_minor_axis": None,
-        "uncertainty_ellipse_orientation": None,
-        "altitude_msl": None,
-        "altitude_hae": None,
-        "vertacc": None
-    }
-
-
-def get_default_last_location_acquired_metrics() -> Dict[str, Any]:
-    """
-    Get default last_location_acquired metrics dictionary with all expected fields initialized.
-    
-    Returns:
-        Dictionary with all last_location_acquired metrics fields initialized
-    """
-    return {
-        "last_location_parser_found": False,
-        "not_available": False,
-        "latitude": None,
-        "longitude": None,
-        "horacc": None,
-        "horacc_hdop": None,
-        "uncertainty_ellipse_major_axis": None,
-        "uncertainty_ellipse_minor_axis": None,
-        "uncertainty_ellipse_orientation": None,
-        "altitude_msl": None,
-        "altitude_hae": None,
-        "vertacc": None,
-        "derivation_type": None,
-        "derivation_time": None
-    }
-
-
-def get_default_show_version_metrics() -> Dict[str, Any]:
-    """
-    Get default show_version metrics dictionary with all expected fields initialized to None.
-
-    Returns:
-        Dictionary with show_version metrics fields set to None
-    """
-    return {
-        "ver_ap_name": None,
-        "ap_serial_number": None,
-        "ap_model": None,
-        "ap_image_family": None,
-        "ap_image_string": None,
-        "ap_running_image": None,
-        "ap_uptime_days": None,
-        "ap_uptime_hours": None,
-        "ap_uptime_minutes": None,
-        "last_reload_time": None,
-        "last_reload_reason": None,
-        "ethernet_mac_address": None,
-        "cloud_id": None
-    }
-
-def get_default_show_inventory_metrics() -> Dict[str, Any]:
-    """
-    Get default show_inventory metrics dictionary with all expected fields initialized to None.
-    Returns:
-        Dictionary with show_inventory metrics fields set to None
-    """
-    return {
-        "inv_parser_found": False,
-        "inv_ap_type": None,
-        "inv_ap_descr": None,
-        "inv_ap_pid": None,
-        "inv_ap_vid": None,
-        "inv_ap_serial": None,
-        "inv_ap_devid": None,
-        "inv_usb_detected": None,
-        "inv_usb_status": None,
-        "inv_usb_pid": None,
-        "inv_usb_vid": None,
-        "inv_usb_manuf": None,
-        "inv_usb_descr": None,
-        "inv_usb_serial": None,
-        "inv_usb_max_power": None
-    }
-
-def extract_show_inventory_metrics(content: str) -> Dict[str, Any]:
-    """
-    Extract show_inventory metrics from the content.
-    Args:
-        content: Raw file content
-    Returns:
-        Dictionary of show_inventory metrics
-    """
-    metrics = get_default_show_inventory_metrics()
-    # Find the show inventory section (prompt or asterisk style)
-    prompt_match = re.search(r'(^|\n)([^\n#]+)#show inventory([\s\S]+?)(\n\2#)', content, re.IGNORECASE)
-    if prompt_match:
-        section = prompt_match.group(3)
-        metrics["inv_parser_found"] = True
-    else:
-        asterisk_match = re.search(r'\*{5} show inventory \*{5}([\s\S]+?)(?=\n\*{5} )', content, re.IGNORECASE)
-        if asterisk_match:
-            section = asterisk_match.group(1)
-            metrics["inv_parser_found"] = True
-        else:
-            return metrics  # Section not found, return all nulls
-    # Parse NAME and DESCR
-    name_descr_match = re.search(r'NAME: ([^,]+), DESCR: ([^\n]+)', section)
-    if name_descr_match:
-        metrics["inv_ap_type"] = name_descr_match.group(1).strip()
-        metrics["inv_ap_descr"] = name_descr_match.group(2).strip()
-    # Parse PID, VID, SN
-    pid_vid_sn_match = re.search(r'PID: ([^,]+) , VID: ([^,]+), SN: ([^\n]+)', section)
-    if pid_vid_sn_match:
-        metrics["inv_ap_pid"] = pid_vid_sn_match.group(1).strip()
-        metrics["inv_ap_vid"] = pid_vid_sn_match.group(2).strip()
-        metrics["inv_ap_serial"] = pid_vid_sn_match.group(3).strip()
-    # Parse DEVID
-    devid_match = re.search(r'DEVID: ([^\n]+)', section)
-    if devid_match:
-        metrics["inv_ap_devid"] = devid_match.group(1).strip()
-    # Parse USB fields (if present)
-    usb_detected = re.search(r'Detected\s*:\s*([^\n]+)', section)
-    if usb_detected:
-        metrics["inv_usb_detected"] = usb_detected.group(1).strip()
-    usb_status = re.search(r'Status\s*:\s*([^\n]+)', section)
-    if usb_status:
-        metrics["inv_usb_status"] = usb_status.group(1).strip()
-    usb_pid = re.search(r'Product ID\s*:\s*([^\n]+)', section)
-    if usb_pid:
-        metrics["inv_usb_pid"] = usb_pid.group(1).strip()
-    usb_vid = re.search(r'Vendor ID\s*:\s*([^\n]+)', section)
-    if usb_vid:
-        metrics["inv_usb_vid"] = usb_vid.group(1).strip()
-    usb_manuf = re.search(r'Manufacturer\s*:\s*([^\n]+)', section)
-    if usb_manuf:
-        metrics["inv_usb_manuf"] = usb_manuf.group(1).strip()
-    usb_descr = re.search(r'Description\s*:\s*([^\n]+)', section)
-    if usb_descr:
-        metrics["inv_usb_descr"] = usb_descr.group(1).strip()
-    usb_serial = re.search(r'Serial Number\s*:\s*([^\n]+)', section)
-    if usb_serial:
-        metrics["inv_usb_serial"] = usb_serial.group(1).strip()
-    usb_max_power = re.search(r'Max Power\s*:\s*([^\n]+)', section)
-    if usb_max_power:
-        metrics["inv_usb_max_power"] = usb_max_power.group(1).strip()
-    return metrics
-
-def extract_show_version_metrics(content: str) -> Dict[str, Any]:
-    """
-    Extract show_version metrics from the content.
-
-    Args:
-        content: Raw file content
-
-    Returns:
-        Dictionary of show_version metrics
-    """
-    metrics = get_default_show_version_metrics()
-
-    # Find the show version section (prompt or asterisk style)
-    # Prompt-based: <ap name>#show version ... <ap name>#
-    prompt_match = re.search(r'(^|\n)([^\n#]+)#show version[\s\S]+?\n\2#', content, re.IGNORECASE)
-    if prompt_match:
-        section = prompt_match.group(0)
-    else:
-        # Asterisk-based: ***** show version ***** ... *****
-        asterisk_match = re.search(r'\*{5} show version \*{5}[\s\S]+?(?=\n\*{5} )', content, re.IGNORECASE)
-        if asterisk_match:
-            section = asterisk_match.group(0)
-        else:
-            return metrics  # Section not found, return all nulls
-
-    # ap_name: <name> uptime is X days, Y hours, Z minutes
-    ap_name_match = re.search(r'^(.*?) uptime is (\d+) days, (\d+) hours, (\d+) minutes', section, re.MULTILINE)
-    if ap_name_match:
-        metrics["ver_ap_name"] = ap_name_match.group(1).strip()
-        try:
-            metrics["ap_uptime_days"] = int(ap_name_match.group(2))
-            metrics["ap_uptime_hours"] = int(ap_name_match.group(3))
-            metrics["ap_uptime_minutes"] = int(ap_name_match.group(4))
-        except Exception:
-            pass
-
-    # ap_serial_number: Top Assembly Serial Number           : XXXYYYYZZZZ
-    serial_match = re.search(r'Top Assembly Serial Number\s*:\s*([^\n]+)', section)
-    if serial_match:
-        metrics["ap_serial_number"] = serial_match.group(1).strip()
-
-    # ap_model: Product/Model Number                 : AANNNNB-C
-    model_match = re.search(r'Product/Model Number\s*:\s*([^\n]+)', section)
-    if model_match:
-        metrics["ap_model"] = model_match.group(1).strip()
-
-    # ap_image_family and ap_image_string: Cisco AP Software, (ap1g6a), C9166, RELEASE SOFTWARE
-    image_line_match = re.search(r'Cisco AP Software, \(([^)]+)\),\s*([^\n]+)', section)
-    if image_line_match:
-        metrics["ap_image_family"] = image_line_match.group(1).strip()
-        # Everything after "), "
-        after_paren = section[image_line_match.end(1)+2:].split("\n", 1)[0].strip()
-        metrics["ap_image_string"] = after_paren
-
-    # ap_running_image: AP Running Image     : LL.MM.NNN.PPP
-    running_image_match = re.search(r'AP Running Image\s*:\s*([^\n]+)', section)
-    if running_image_match:
-        metrics["ap_running_image"] = running_image_match.group(1).strip()
-
-    # last_reload_time: Last reload time   : Sun Apr 27 15:28:00 UTC 2025
-    reload_time_match = re.search(r'Last reload time\s*:\s*([^\n]+)', section)
-    if reload_time_match:
-        metrics["last_reload_time"] = reload_time_match.group(1).strip()
-
-    # last_reload_reason: Last reload reason : X
-    last_reload_reason_match = re.search(
-        r"^Last reload reason\s*:\s*(.*)$", section, re.MULTILINE
-    )
-    if last_reload_reason_match:
-        # Defensive: If the entire line is just 'Last reload reason :' (with or without whitespace), set to None
-        if last_reload_reason_match.group(0).strip() == "Last reload reason :":
-            metrics["last_reload_reason"] = None
-        else:
-            value = last_reload_reason_match.group(1)
-            if value.strip() == "":
-                metrics["last_reload_reason"] = None
-            else:
-                metrics["last_reload_reason"] = value
-
-    # ethernet_mac_address: Base ethernet MAC Address            : AA:BB:CC:DD:EE:FF
-    mac_match = re.search(r'Base ethernet MAC Address\s*:\s*([^\n]+)', section)
-    if mac_match:
-        metrics["ethernet_mac_address"] = mac_match.group(1).strip()
-
-    # cloud_id: Cloud ID                             : AAAA-BBBB-CCCC
-    cloud_id_match = re.search(r'Cloud ID\s*:\s*([^\n]+)', section)
-    if cloud_id_match:
-        metrics["cloud_id"] = cloud_id_match.group(1).strip()
-
-    return metrics
-
-
-def extract_gnss_metrics(content: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """
-    Extract main and GNSS state metrics from the content.
-    
-    Args:
-        content: Raw file content
-        
-    Returns:
-        Tuple of (main metrics dictionary, gnss state metrics dictionary)
-    """
-    # Initialize metrics dictionaries with all expected fields
-    main_metrics = get_default_main_metrics()
-    gnss_state_metrics = get_default_gnss_state_metrics()
-    
-    # Extract AP name and add it to the main metrics
-    ap_name = extract_ap_name(content)
-    if ap_name:
-        main_metrics["main_ap_name"] = ap_name
-    
-    # Extract clock time from 'show clock' command and add to main metrics
-    show_clock_time = extract_show_clock_time(content)
-    if show_clock_time:
-        main_metrics["show_clock_time"] = show_clock_time
-    
-    # Check for "No GNSS detected" message
-    # Look for pattern of "show gnss info" followed by "No GNSS detected"
-    # Make it case insensitive
-    no_gnss_pattern = r'show gnss info\s*\n\s*No GNSS detected'
-    gnss_state_metrics["no_gnss_detected"] = bool(re.search(no_gnss_pattern, content, re.IGNORECASE))
-    
-    # If no GNSS detected, we can return early as there won't be any metrics
-    if gnss_state_metrics["no_gnss_detected"]:
-        return main_metrics, gnss_state_metrics
-    
-    # Extract the GNSS state section
-    gnss_state_start = content.find("GnssState:")
-    if gnss_state_start == -1:
-        # Try case insensitive search
-        match = re.search(r'gnssstate:', content, re.IGNORECASE)
-        if match:
-            gnss_state_start = match.start()
-        else:
-            return main_metrics, gnss_state_metrics
-    
-    # Find the end of the state section (satellite table start)
-    sat_table_start = re.search(r'Const\.', content[gnss_state_start:], re.IGNORECASE)
-    if sat_table_start:
-        state_section = content[gnss_state_start:gnss_state_start + sat_table_start.start()]
-    else:
-        # If satellite table not found, use a large section
-        state_section = content[gnss_state_start:]
-    
-    # Define patterns for each metric
-    patterns = {
-        "state": r"GnssState:\s*(\w+)",
-        "external_antenna": r"ExternalAntenna:\s*(true|false)",
-        "fix_type": r"Fix:\s*([^\s]+)",
-        "valid_fix": r"ValidFix:\s*(true|false)",
-        "gnss_fix_time": r"Time:\s*([\d-]+\s+[\d:]+)",
-        "latitude": r"Latitude:\s*([\d\.-]+)",
-        "longitude": r"Longitude:\s*([\d\.-]+)",
-        "horacc": r"HorAcc:\s*([\d\.]+)",
-        "altitude_msl": r"Altitude MSL:\s*([\d\.]+)",
-        "altitude_hae": r"HAE:\s*([\d\.]+)",
-        "vertacc": r"VertAcc:\s*([\d\.]+)",
-        "numsat": r"NumSat:\s*(\d+)",
-        "rangeres": r"RangeRes:\s*([\d\.]+)",
-        "gpgstrms": r"GpGstRms:\s*([\d\.]+)",
-        "satellitecount": r"SatelliteCount:\s*(\d+)",
-        "last_fix_time": r"LastFixTime:\s*([\d-]+\s+[\d:]+)",
-    }
-    
-    # Extract uncertainty ellipse separately
-    uncertainty_pattern = r"Uncertainty Ellipse:\s*Major axis:\s*([\d\.]+)\s*Minor axis:\s*([\d\.]+)\s*Orientation:\s*([\d\.]+)"
-    uncertainty_match = re.search(uncertainty_pattern, state_section, re.IGNORECASE)
-    
-    if uncertainty_match:
-        gnss_state_metrics["uncertainty_ellipse_major_axis"] = float(uncertainty_match.group(1))
-        gnss_state_metrics["uncertainty_ellipse_minor_axis"] = float(uncertainty_match.group(2))
-        gnss_state_metrics["uncertainty_ellipse_orientation"] = float(uncertainty_match.group(3))
-    
-    # Extract DOP parameters - these might be presented together in a line
-    dop_pattern = r"pDOP:\s*([\d\.]+)\s+hDOP:\s*([\d\.]+)\s+vDOP:\s*([\d\.]+)\s+nDOP:\s*([\d\.]+)\s+eDOP:\s*([\d\.]+)\s+gDOP:\s*([\d\.]+)\s+tDOP:\s*([\d\.]+)"
-    dop_match = re.search(dop_pattern, state_section, re.IGNORECASE)
-    
-    if dop_match:
-        gnss_state_metrics["pdop"] = float(dop_match.group(1))
-        gnss_state_metrics["hdop"] = float(dop_match.group(2))
-        gnss_state_metrics["vdop"] = float(dop_match.group(3))
-        gnss_state_metrics["ndop"] = float(dop_match.group(4))
-        gnss_state_metrics["edop"] = float(dop_match.group(5))
-        gnss_state_metrics["gdop"] = float(dop_match.group(6))
-        gnss_state_metrics["tdop"] = float(dop_match.group(7))
-    
-    # Extract first hDOP value separately (may appear before the DOP section)
-    horacc_hdop_pattern = r"HorAcc:\s*[\d\.]+\s+hDOP:\s*([\d\.]+)"
-    horacc_hdop_match = re.search(horacc_hdop_pattern, state_section, re.IGNORECASE)
-    
-    if horacc_hdop_match:
-        gnss_state_metrics["horacc_hdop"] = float(horacc_hdop_match.group(1))
-    
-    # Process the main patterns
-    for key, pattern in patterns.items():
-        match = re.search(pattern, state_section, re.IGNORECASE)
-        if match:
-            value = match.group(1)
-            if key in ["external_antenna", "valid_fix"]:
-                gnss_state_metrics[key] = value.lower() == "true"
-            elif key in ["latitude", "longitude", "horacc", "altitude_msl", 
-                        "altitude_hae", "vertacc", "rangeres", "gpgstrms"]:
-                try:
-                    # Ensure float values are parsed correctly with full precision
-                    gnss_state_metrics[key] = float(value)
-                except ValueError:
-                    gnss_state_metrics[key] = value
-            elif key in ["numsat", "satellitecount"]:
-                try:
-                    gnss_state_metrics[key] = int(value)
-                except ValueError:
-                    gnss_state_metrics[key] = value
-            else:
-                gnss_state_metrics[key] = value
-    
-    return main_metrics, gnss_state_metrics
-
-
-def extract_gnss_postprocessor_metrics(content: str) -> Dict[str, Any]:
-    """
-    Extract GNSS_PostProcessor metrics from the content.
-    
-    Args:
-        content: Raw file content
-        
-    Returns:
-        Dictionary of GNSS_PostProcessor metrics
-    """
-    # Initialize metrics dictionary with defaults
-    metrics = get_default_gnss_postprocessor_metrics()
-    
-    # Check if GNSS_PostProcessor section exists
-    postprocessor_match = re.search(r'GNSS_PostProcessor:', content, re.IGNORECASE)
-    if not postprocessor_match:
-        return metrics
-    
-    # Mark parser_found as true since we found the section
-    metrics["gnss_pp_parser_found"] = True
-    
-    # Check if it's "N/A"
-    if re.search(r'GNSS_PostProcessor:\s*N/A', content, re.IGNORECASE):
-        metrics["not_available"] = True
-        return metrics
-    
-    # Extract the GNSS_PostProcessor section
-    section_start = postprocessor_match.start()
-    
-    # Find the end of the section (next major section or end of content)
-    next_section_match = re.search(r'\n\n', content[section_start:])
-    if next_section_match:
-        section_end = section_start + next_section_match.start()
-        section_content = content[section_start:section_end]
-    else:
-        section_content = content[section_start:]
-    
-    # Extract latitude and longitude
-    lat_match = re.search(r'Latitude:\s*([\d\.-]+)', section_content, re.IGNORECASE)
-    if lat_match:
-        metrics["latitude"] = float(lat_match.group(1))
-    
-    lon_match = re.search(r'Longitude:\s*([\d\.-]+)', section_content, re.IGNORECASE)
-    if lon_match:
-        metrics["longitude"] = float(lon_match.group(1))
-    
-    # Extract horizontal accuracy and HDOP
-    horacc_hdop_match = re.search(r'HorAcc:\s*([\d\.]+)\s+hDOP:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if horacc_hdop_match:
-        metrics["horacc"] = float(horacc_hdop_match.group(1))
-        metrics["horacc_hdop"] = float(horacc_hdop_match.group(2))
-    
-    # Extract uncertainty ellipse
-    uncertainty_match = re.search(r'Major axis:\s*([\d\.]+)\s+Minor axis:\s*([\d\.]+)\s+Orientation:\s*([\d\.]+)', 
-                                 section_content, re.IGNORECASE)
-    if uncertainty_match:
-        metrics["uncertainty_ellipse_major_axis"] = float(uncertainty_match.group(1))
-        metrics["uncertainty_ellipse_minor_axis"] = float(uncertainty_match.group(2))
-        metrics["uncertainty_ellipse_orientation"] = float(uncertainty_match.group(3))
-    
-    # Extract altitude and vertical accuracy
-    alt_msl_match = re.search(r'Altitude MSL:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if alt_msl_match:
-        metrics["altitude_msl"] = float(alt_msl_match.group(1))
-    
-    alt_hae_match = re.search(r'HAE:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if alt_hae_match:
-        metrics["altitude_hae"] = float(alt_hae_match.group(1))
-    
-    vertacc_match = re.search(r'VertAcc:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if vertacc_match:
-        metrics["vertacc"] = float(vertacc_match.group(1))
-    
-    return metrics
-
-
-def extract_cisco_gnss_metrics(content: str) -> Dict[str, Any]:
-    """
-    Extract cisco_gnss metrics from the content.
-    
-    Args:
-        content: Raw file content
-        
-    Returns:
-        Dictionary of cisco_gnss metrics
-    """
-    # Initialize metrics dictionary with defaults
-    metrics = get_default_cisco_gnss_metrics()
-    
-    # Check if CiscoGNSS section exists
-    cisco_gnss_match = re.search(r'CiscoGNSS:', content, re.IGNORECASE)
-    if not cisco_gnss_match:
-        return metrics
-    
-    # Mark parser_found as true since we found the section
-    metrics["cisco_gnss_parser_found"] = True
-    
-    # Check if it's "N/A"
-    if re.search(r'CiscoGNSS:\s*N/A', content, re.IGNORECASE):
-        metrics["not_available"] = True
-        return metrics
-    
-    # Extract the CiscoGNSS section
-    section_start = cisco_gnss_match.start()
-    
-    # Find the end of the section (next major section or end of content)
-    next_section_match = re.search(r'\n\n', content[section_start:])
-    if next_section_match:
-        section_end = section_start + next_section_match.start()
-        section_content = content[section_start:section_end]
-    else:
-        section_content = content[section_start:]
-    
-    # Extract latitude and longitude
-    lat_match = re.search(r'Latitude:\s*([\d\.-]+)', section_content, re.IGNORECASE)
-    if lat_match:
-        metrics["latitude"] = float(lat_match.group(1))
-    
-    lon_match = re.search(r'Longitude:\s*([\d\.-]+)', section_content, re.IGNORECASE)
-    if lon_match:
-        metrics["longitude"] = float(lon_match.group(1))
-    
-    # Extract horizontal accuracy and HDOP
-    horacc_hdop_match = re.search(r'HorAcc:\s*([\d\.]+)\s+hDOP:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if horacc_hdop_match:
-        metrics["horacc"] = float(horacc_hdop_match.group(1))
-        metrics["horacc_hdop"] = float(horacc_hdop_match.group(2))
-    
-    # Extract uncertainty ellipse
-    uncertainty_match = re.search(r'Major axis:\s*([\d\.]+)\s+Minor axis:\s*([\d\.]+)\s+Orientation:\s*([\d\.]+)', 
-                                 section_content, re.IGNORECASE)
-    if uncertainty_match:
-        metrics["uncertainty_ellipse_major_axis"] = float(uncertainty_match.group(1))
-        metrics["uncertainty_ellipse_minor_axis"] = float(uncertainty_match.group(2))
-        metrics["uncertainty_ellipse_orientation"] = float(uncertainty_match.group(3))
-    
-    # Extract altitude and vertical accuracy
-    alt_msl_match = re.search(r'Altitude MSL:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if alt_msl_match:
-        metrics["altitude_msl"] = float(alt_msl_match.group(1))
-    
-    alt_hae_match = re.search(r'HAE:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if alt_hae_match:
-        metrics["altitude_hae"] = float(alt_hae_match.group(1))
-    
-    vertacc_match = re.search(r'VertAcc:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if vertacc_match:
-        metrics["vertacc"] = float(vertacc_match.group(1))
-    
-    return metrics
-
-
-def extract_last_location_acquired_metrics(content: str) -> Dict[str, Any]:
-    """
-    Extract last_location_acquired metrics from the content.
-    
-    Args:
-        content: Raw file content
-        
-    Returns:
-        Dictionary of last_location_acquired metrics
-    """
-    # Initialize metrics dictionary with defaults
-    metrics = get_default_last_location_acquired_metrics()
-    
-    # Check if Last Location Acquired section exists
-    last_location_match = re.search(r'Last Location Acquired:', content, re.IGNORECASE)
-    if not last_location_match:
-        return metrics
-    
-    # Mark parser_found as true since we found the section
-    metrics["last_location_parser_found"] = True
-    
-    # Check if it's "N/A"
-    if re.search(r'Last Location Acquired:\s*N/A', content, re.IGNORECASE):
-        metrics["not_available"] = True
-        return metrics
-    
-    # Extract the Last Location Acquired section
-    section_start = last_location_match.start()
-    
-    # Find the end of the section (next major section or end of content)
-    next_section_match = re.search(r'\n\n', content[section_start:])
-    if next_section_match:
-        section_end = section_start + next_section_match.start()
-        section_content = content[section_start:section_end]
-    else:
-        section_content = content[section_start:]
-    
-    # Extract latitude and longitude
-    lat_match = re.search(r'Latitude:\s*([\d\.-]+)', section_content, re.IGNORECASE)
-    if lat_match:
-        metrics["latitude"] = float(lat_match.group(1))
-    
-    lon_match = re.search(r'Longitude:\s*([\d\.-]+)', section_content, re.IGNORECASE)
-    if lon_match:
-        metrics["longitude"] = float(lon_match.group(1))
-    
-    # Extract horizontal accuracy and HDOP
-    horacc_hdop_match = re.search(r'HorAcc:\s*([\d\.]+)\s+hDOP:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if horacc_hdop_match:
-        metrics["horacc"] = float(horacc_hdop_match.group(1))
-        metrics["horacc_hdop"] = float(horacc_hdop_match.group(2))
-    
-    # Extract uncertainty ellipse
-    uncertainty_match = re.search(r'Major axis:\s*([\d\.]+)\s+Minor axis:\s*([\d\.]+)\s+Orientation:\s*([\d\.]+)', 
-                                 section_content, re.IGNORECASE)
-    if uncertainty_match:
-        metrics["uncertainty_ellipse_major_axis"] = float(uncertainty_match.group(1))
-        metrics["uncertainty_ellipse_minor_axis"] = float(uncertainty_match.group(2))
-        metrics["uncertainty_ellipse_orientation"] = float(uncertainty_match.group(3))
-    
-    # Extract altitude and vertical accuracy
-    alt_msl_match = re.search(r'Altitude MSL:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if alt_msl_match:
-        metrics["altitude_msl"] = float(alt_msl_match.group(1))
-    
-    alt_hae_match = re.search(r'HAE:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if alt_hae_match:
-        metrics["altitude_hae"] = float(alt_hae_match.group(1))
-    
-    vertacc_match = re.search(r'VertAcc:\s*([\d\.]+)', section_content, re.IGNORECASE)
-    if vertacc_match:
-        metrics["vertacc"] = float(vertacc_match.group(1))
-    
-    # Extract derivation type
-    derivation_type_match = re.search(r'Derivation Type:\s*([^\n]+)', section_content, re.IGNORECASE)
-    if derivation_type_match:
-        metrics["derivation_type"] = derivation_type_match.group(1).strip()
-    
-    # Extract time
-    derivation_time_match = re.search(r'Time:\s*([\d-]+\s+[\d:]+)', section_content, re.IGNORECASE)
-    if derivation_time_match:
-        metrics["derivation_time"] = derivation_time_match.group(1).strip()
-    
-    return metrics
-
-
-def parse_flexible(content: str) -> Dict[str, Any]:
-    """
-    More flexible parser that searches for GNSS data without assuming a specific format.
-    
-    Args:
-        content: Raw file content as string
-        
-    Returns:
-        Dictionary containing parsed GNSS data
-    """
-    result = {
-        "raw_data": {},
-        "satellites": []
-    }
-    
-    # Extract main and GNSS state metrics from the content
-    main_metrics, gnss_state_metrics = extract_gnss_metrics(content)
-    
-    # Add both sections to the result
-    result["main"] = main_metrics
-    # Insert show_version section immediately after main
-    result["show_version"] = extract_show_version_metrics(content)
-    result["gnss_state"] = gnss_state_metrics
-    
-    # Extract GNSS_PostProcessor metrics
-    result["gnss_postprocessor"] = extract_gnss_postprocessor_metrics(content)
-    
-    # Extract cisco_gnss metrics
-    result["cisco_gnss"] = extract_cisco_gnss_metrics(content)
-    
-    # Extract last_location_acquired metrics
-    result["last_location_acquired"] = extract_last_location_acquired_metrics(content)
-    
-    # Extract show_inventory metrics
-    result["show_inventory"] = extract_show_inventory_metrics(content)
-    
-    # If no GNSS detected, we can skip parsing detailed data
-    if gnss_state_metrics["no_gnss_detected"]:
-        return result
-    
-    # Look for key-value pairs with flexible pattern for raw_data
-    kv_pattern = r'([A-Za-z0-9_]+(?:\s+[A-Za-z0-9_]+)*)(?:\s*:)\s*([\d\.\-]+|[A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*)'
-    
-    for match in re.finditer(kv_pattern, content):
-        key = match.group(1).strip().replace(" ", "_").lower()
-        value = match.group(2).strip()
-        
-        # Convert value to appropriate type if possible
-        if value.lower() == "true" or value.lower() == "false":
-            result["raw_data"][key] = value.lower() == "true"
-        else:
-            try:
-                if "." in value:
-                    result["raw_data"][key] = float(value)
-                else:
-                    result["raw_data"][key] = int(value)
-            except ValueError:
-                result["raw_data"][key] = value
-    
-    # Look for satellite data in table format
-    # Make the search case insensitive
-    table_match = re.search(r'Const\.', content, re.IGNORECASE)
-    
-    if table_match:
-        table_start = table_match.start()
-        table_lines = content[table_start:].split('\n')
-        headers = re.split(r'\s+', table_lines[0].strip())
-        
-        # Process each line that might contain satellite data
-        for i in range(1, min(50, len(table_lines))):  # Limit to first 50 lines
-            line = table_lines[i].strip()
-            if not line:
-                continue
-                
-            # Check if this looks like satellite data (starts with GPS, GLONASS, Galileo, etc.)
-            if any(line.upper().startswith(system) for system in ["GPS", "GLONASS", "GALILEO", "BEIDOU"]):
-                parts = re.split(r'\s+', line)
-                if len(parts) >= 5:  # Minimal validation - needs at least a few columns
-                    satellite = {"constellation": parts[0]}
-                    
-                    # Add as many fields as available
-                    for j in range(1, min(len(parts), len(headers))):
-                        key = headers[j].lower() if j < len(headers) else f"field_{j}"
-                        try:
-                            # Try to convert to int or float if appropriate
-                            if parts[j].isdigit():
-                                satellite[key] = int(parts[j])
-                            elif re.match(r'^[\d\.]+$', parts[j]):
-                                satellite[key] = float(parts[j])
-                            else:
-                                satellite[key] = parts[j]
-                        except:
-                            satellite[key] = parts[j]
-                    
-                    result["satellites"].append(satellite)
-            elif re.match(r'^=', line) or re.search(r'example-', line, re.IGNORECASE):
-                # End of table detected
-                break
-    
-    return result
-
-
-def reorder_json(data: Dict[str, Any]) -> OrderedDict:
-    """
-    Reorder the JSON data to have metadata first, then main, then show_version, then show_inventory, then gnss_state, then 
-    gnss_postprocessor, then cisco_gnss, then last_location_acquired, then satellites.
-    
-    Args:
-        data: Original data dictionary
-        
-    Returns:
-        OrderedDict with keys in the desired order
-    """
-    ordered = OrderedDict()
-    
-    # Add sections in the desired order
-    if "metadata" in data:
-        ordered["metadata"] = data["metadata"]
-    
-    if "main" in data:
-        ordered["main"] = data["main"]
-    
-    if "show_version" in data:
-        ordered["show_version"] = data["show_version"]
-    
-    if "show_inventory" in data:
-        ordered["show_inventory"] = data["show_inventory"]
-    
-    if "gnss_state" in data:
-        ordered["gnss_state"] = data["gnss_state"]
-    
-    if "gnss_postprocessor" in data:
-        ordered["gnss_postprocessor"] = data["gnss_postprocessor"]
-    
-    if "cisco_gnss" in data:
-        ordered["cisco_gnss"] = data["cisco_gnss"]
-    
-    if "last_location_acquired" in data:
-        ordered["last_location_acquired"] = data["last_location_acquired"]
-    
-    if "satellites" in data:
-        ordered["satellites"] = data["satellites"]
-    
-    # Add any other sections that might exist
-    for key, value in data.items():
-        if key not in ["metadata", "main", "show_version", "show_inventory", "gnss_state", "gnss_postprocessor", 
-                      "cisco_gnss", "last_location_acquired", "satellites", "raw_data"]:
-            ordered[key] = value
-    
-    # Add raw_data at the end if it exists and is requested
-    if "raw_data" in data:
-        ordered["raw_data"] = data["raw_data"]
-    
-    return ordered
-
-
 def expand_file_paths(paths: List[str]) -> Set[str]:
     """
     Expand file paths including wildcards to actual file paths.
@@ -1280,25 +237,35 @@ def process_file(file_path: str, args: argparse.Namespace) -> Dict[str, Any]:
         with open(file_path, 'r', encoding='utf-8') as file:
             content = file.read()
         
-        parsed_data = parse_flexible(content)
+        # Use the library parser instead of the old parse_flexible function
+        parser = GnssInfoParser()
+        parsed_data = parser.parse(content)
         
         # Add consolidated metadata with parser info and timestamp
         # Follow schema requirements: include parser_version, parse_time, input_file, file_size
         # NO parser_user field per requirements
         # NO processing_time_seconds field per requirements
-        parsed_data["metadata"] = {
-            "parser_version": "1.3.0",
+        metadata = {
+            "parser_version": parser.get_version(),
             "parse_time": datetime.now().isoformat(),  # IMPORTANT: Must use dynamic timestamp
             "input_file": os.path.basename(file_path),
             "file_size": os.path.getsize(file_path)
         }
         
-        # Remove raw_data if not requested
-        if not args.include_raw and "raw_data" in parsed_data:
-            del parsed_data["raw_data"]
+        # Move metadata to a temporary variable, remove it if it exists already
+        if "metadata" in parsed_data:
+            del parsed_data["metadata"]
         
-        # Reorder the JSON fields as requested
-        parsed_data = reorder_json(parsed_data)
+        # Create an OrderedDict with metadata first, then add the rest of the data
+        ordered_data = OrderedDict([("metadata", metadata)])
+        
+        # Add all other keys from parsed_data
+        for key, value in parsed_data.items():
+            ordered_data[key] = value
+        
+        # Remove raw_data if not requested
+        if not args.include_raw and "raw_data" in ordered_data:
+            del ordered_data["raw_data"]
         
         # Output the parsed data
         output_path = args.output_dir or os.path.dirname(file_path) or '.'
@@ -1310,15 +277,15 @@ def process_file(file_path: str, args: argparse.Namespace) -> Dict[str, Any]:
         with open(output_file, 'w', encoding='utf-8') as f:
             json_indent = 4 if args.pretty else 2
             sort_keys = False  # Don't sort keys because we want to preserve our custom order
-            json.dump(parsed_data, f, indent=json_indent, sort_keys=sort_keys, ensure_ascii=False)
+            json.dump(ordered_data, f, indent=json_indent, sort_keys=sort_keys, ensure_ascii=False)
         
         return {
             "file_path": file_path,
             "output_path": output_file,
             "status": "success",
             "processing_time": time.time() - start_time,
-            "metrics_found": bool(parsed_data.get("main")),
-            "satellites_found": len(parsed_data.get("satellites", []))
+            "metrics_found": bool(ordered_data.get("main")),
+            "satellites_found": len(ordered_data.get("satellites", []))
         }
         
     except Exception as e:
@@ -1369,25 +336,34 @@ async def process_file_async(file_path: str, args: argparse.Namespace) -> Dict[s
         
         # Use a thread pool for CPU-bound parsing to avoid blocking the event loop
         loop = asyncio.get_event_loop()
-        parsed_data = await loop.run_in_executor(None, parse_flexible, content)
+        parser = GnssInfoParser()
+        parsed_data = await loop.run_in_executor(None, parser.parse, content)
         
         # Add consolidated metadata with parser info and timestamp
         # Follow schema requirements: include parser_version, parse_time, input_file, file_size
         # NO parser_user field per requirements
         # NO processing_time_seconds field per requirements
-        parsed_data["metadata"] = {
-            "parser_version": "1.3.0",
+        metadata = {
+            "parser_version": parser.get_version(),
             "parse_time": datetime.now().isoformat(),  # IMPORTANT: Must use dynamic timestamp
             "input_file": os.path.basename(file_path),
             "file_size": os.path.getsize(file_path)
         }
         
-        # Remove raw_data if not requested
-        if not args.include_raw and "raw_data" in parsed_data:
-            del parsed_data["raw_data"]
+        # Move metadata to a temporary variable, remove it if it exists already
+        if "metadata" in parsed_data:
+            del parsed_data["metadata"]
         
-        # Reorder the JSON fields as requested
-        parsed_data = reorder_json(parsed_data)
+        # Create an OrderedDict with metadata first, then add the rest of the data
+        ordered_data = OrderedDict([("metadata", metadata)])
+        
+        # Add all other keys from parsed_data
+        for key, value in parsed_data.items():
+            ordered_data[key] = value
+        
+        # Remove raw_data if not requested
+        if not args.include_raw and "raw_data" in ordered_data:
+            del ordered_data["raw_data"]
         
         # Output the parsed data
         output_path = args.output_dir or os.path.dirname(file_path) or '.'
@@ -1398,7 +374,7 @@ async def process_file_async(file_path: str, args: argparse.Namespace) -> Dict[s
         
         json_indent = 4 if args.pretty else 2
         sort_keys = False  # Don't sort keys because we want to preserve our custom order
-        json_data = json.dumps(parsed_data, indent=json_indent, sort_keys=sort_keys, ensure_ascii=False)
+        json_data = json.dumps(ordered_data, indent=json_indent, sort_keys=sort_keys, ensure_ascii=False)
         
         async with aiofiles.open(output_file, 'w', encoding='utf-8') as f:
             await f.write(json_data)
@@ -1408,8 +384,8 @@ async def process_file_async(file_path: str, args: argparse.Namespace) -> Dict[s
             "output_path": output_file,
             "status": "success",
             "processing_time": time.time() - start_time,
-            "metrics_found": bool(parsed_data.get("main")),
-            "satellites_found": len(parsed_data.get("satellites", []))
+            "metrics_found": bool(ordered_data.get("main")),
+            "satellites_found": len(ordered_data.get("satellites", []))
         }
         
     except Exception as e:

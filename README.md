@@ -10,11 +10,12 @@ Tools for parsing and analyzing GNSS (Global Navigation Satellite System) statis
 - [X] Add parsing of "Last Location Acquired"
 - [X] Add support for parsing "show version"
 - [X] Add support for parsing "show inventory"
-- [ ] Break out the parsing bits into a library
+- [X] Break out the parsing bits into a library
 - [ ] Add support dotenv for configuration
 - [ ] Add support for SSHing to APs and running the commands
   - [ ] Add support for multiple SSH connections at once
-- [ ] Add support for pushing the parsed data to Prometheus and possibly InfluxDB
+- [ ] Add support for pushing the parsed data to Prometheus
+- [ ] Add support for pushing the parsed data to InfluxDB
 - [ ] Add example visualizations using Grafana
 - [ ] Add support for accelerometer sensor data from APs
 - [ ] Add support for pulling AP lists from Cisco DNA Center
