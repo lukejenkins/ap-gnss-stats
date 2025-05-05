@@ -46,12 +46,13 @@ try:
     from dotenv import load_dotenv
 except ImportError:
     print("Warning: python-dotenv not installed. Credentials cannot be loaded from .env file.")
+    # Define a no-op function as fallback
     load_dotenv = lambda: None
 
 # Import our GNSS parser library
 from ap_gnss_stats.lib.parsers.gnss_info_parser import GnssInfoParser
 
-# Constants
+# Constants - default values which can be overridden by environment variables
 DEFAULT_LOG_DIR = "logs"
 DEFAULT_OUTPUT_DIR = "output"
 DEFAULT_SSH_PORT = 22
@@ -59,7 +60,83 @@ DEFAULT_SSH_TIMEOUT = 30
 DEFAULT_SSH_CONN_TIMEOUT = 15
 DEFAULT_COMMAND_TIMEOUT = 60
 DEFAULT_SESSION_LOG_EXTENSION = ".log"
+DEFAULT_CONCURRENT_CONNECTIONS = 1
+DEFAULT_INCLUDE_RAW_DATA = False
+DEFAULT_DEVICE_TYPE = "cisco_ios"
+DEFAULT_GLOBAL_DELAY_FACTOR = 1.5
 
+# Load environment variables from .env file
+def load_env_config():
+    """
+    Load environment variables from .env file and update default constants.
+    
+    This function loads the .env file and updates the script's default
+    configuration values based on environment variables if they exist.
+    """
+    # Look for .env file in the current directory and parent directories
+    dotenv_path = find_dotenv_file()
+    
+    # Load the .env file if found
+    if dotenv_path:
+        print(f"Loading configuration from: {dotenv_path}")
+        load_dotenv(dotenv_path)
+    else:
+        # Try default load_dotenv which looks in current directory and parent directories
+        load_dotenv()
+    
+    # Update defaults from environment variables
+    global DEFAULT_LOG_DIR, DEFAULT_OUTPUT_DIR, DEFAULT_SSH_PORT
+    global DEFAULT_SSH_TIMEOUT, DEFAULT_SSH_CONN_TIMEOUT, DEFAULT_COMMAND_TIMEOUT
+    global DEFAULT_CONCURRENT_CONNECTIONS, DEFAULT_INCLUDE_RAW_DATA
+    global DEFAULT_DEVICE_TYPE, DEFAULT_GLOBAL_DELAY_FACTOR
+    
+    # Helper function to get environment variables with type conversion
+    def get_env_or_default(env_name, default_value, convert_func=str):
+        """Get environment variable with type conversion or return default."""
+        env_value = os.getenv(env_name)
+        if env_value is not None:
+            try:
+                return convert_func(env_value)
+            except (ValueError, TypeError):
+                print(f"Warning: Invalid value for {env_name}, using default: {default_value}")
+        return default_value
+    
+    # Update configuration constants from environment variables
+    DEFAULT_LOG_DIR = get_env_or_default("AP_LOG_DIR", DEFAULT_LOG_DIR)
+    DEFAULT_OUTPUT_DIR = get_env_or_default("AP_OUTPUT_DIR", DEFAULT_OUTPUT_DIR)
+    DEFAULT_SSH_PORT = get_env_or_default("AP_SSH_PORT", DEFAULT_SSH_PORT, int)
+    DEFAULT_SSH_TIMEOUT = get_env_or_default("AP_SSH_TIMEOUT", DEFAULT_SSH_TIMEOUT, int)
+    DEFAULT_SSH_CONN_TIMEOUT = get_env_or_default("AP_SSH_CONN_TIMEOUT", DEFAULT_SSH_CONN_TIMEOUT, int)
+    DEFAULT_COMMAND_TIMEOUT = get_env_or_default("AP_COMMAND_TIMEOUT", DEFAULT_COMMAND_TIMEOUT, int)
+    DEFAULT_CONCURRENT_CONNECTIONS = get_env_or_default("AP_CONCURRENT_CONNECTIONS", DEFAULT_CONCURRENT_CONNECTIONS, int)
+    DEFAULT_INCLUDE_RAW_DATA = get_env_or_default("AP_INCLUDE_RAW_DATA", DEFAULT_INCLUDE_RAW_DATA, lambda x: x.lower() in ('true', '1', 'yes', 'y'))
+    DEFAULT_DEVICE_TYPE = get_env_or_default("AP_DEVICE_TYPE", DEFAULT_DEVICE_TYPE)
+    DEFAULT_GLOBAL_DELAY_FACTOR = get_env_or_default("AP_GLOBAL_DELAY_FACTOR", DEFAULT_GLOBAL_DELAY_FACTOR, float)
+
+def find_dotenv_file() -> Optional[str]:
+    """
+    Find the .env file by looking in the current directory and parent directories.
+    
+    Returns:
+        Path to the .env file if found, None otherwise
+    """
+    # Start with the current working directory
+    current_dir = os.path.abspath(os.getcwd())
+    
+    # Also check the script's directory
+    script_dir = os.path.abspath(os.path.dirname(__file__))
+    
+    # Check both directories and their parents
+    for base_dir in [current_dir, script_dir]:
+        # Check up to 3 parent directories
+        for _ in range(4):
+            env_path = os.path.join(base_dir, ".env")
+            if os.path.isfile(env_path):
+                return env_path
+            # Move up one directory
+            base_dir = os.path.dirname(base_dir)
+    
+    return None
 
 class TimestampedFileHandler(logging.FileHandler):
     """Custom log handler that prepends timestamps to each line."""
@@ -490,6 +567,9 @@ def read_ap_list_from_file(file_path: str) -> List[str]:
 
 def main():
     """Main function to connect to APs and collect data."""
+    # Load environment variables from .env file
+    load_env_config()
+    
     parser = argparse.ArgumentParser(description='Connect to Cisco APs via SSH and collect GNSS data')
     
     # Create group for AP selection (either single AP or file with list)
@@ -506,9 +586,10 @@ def main():
     parser.add_argument('--port', type=int, default=DEFAULT_SSH_PORT, help='SSH port number')
     parser.add_argument('-o', '--output-dir', default=DEFAULT_OUTPUT_DIR, help='Output directory for parsed data')
     parser.add_argument('-l', '--log-dir', default=DEFAULT_LOG_DIR, help='Directory for SSH session logs')
-    parser.add_argument('-r', '--include-raw', action='store_true', help='Include raw data in parsed output')
-    parser.add_argument('-c', '--concurrent', type=int, default=1, 
-                       help='Number of concurrent AP connections (default: 1)')
+    parser.add_argument('-r', '--include-raw', action='store_true', default=DEFAULT_INCLUDE_RAW_DATA, 
+                       help='Include raw data in parsed output')
+    parser.add_argument('-c', '--concurrent', type=int, default=DEFAULT_CONCURRENT_CONNECTIONS, 
+                       help=f'Number of concurrent AP connections (default: {DEFAULT_CONCURRENT_CONNECTIONS})')
     
     args = parser.parse_args()
     
@@ -536,9 +617,14 @@ def main():
     if args.ap_address:
         ap_list = [args.ap_address]
     elif args.file:
-        ap_list = read_ap_list_from_file(args.file)
+        # Check if the file is an environment variable
+        file_path = args.file
+        if not os.path.isfile(file_path) and os.getenv("AP_LIST_FILE"):
+            file_path = os.getenv("AP_LIST_FILE")
+            
+        ap_list = read_ap_list_from_file(file_path)
         if not ap_list:
-            print(f"No valid AP addresses found in {args.file}")
+            print(f"No valid AP addresses found in {file_path}")
             return 1
     
     print(f"Will process {len(ap_list)} access point(s)")
