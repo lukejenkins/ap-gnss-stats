@@ -1,0 +1,635 @@
+#!/usr/bin/env python3
+"""
+AP SSH Collector - Connect to Cisco APs via SSH, collect GNSS data, and parse the output.
+
+This script connects to Cisco Access Points via SSH, collects output from various
+'show' commands, logs the entire session with timestamps, and parses the collected
+data using the GNSS parser library.
+
+Usage:
+    ap_ssh_collector.py -a <ap_address> -u <username> [-p <password>] [-e <enable_password>]
+    ap_ssh_collector.py -f <file_with_ap_list> -u <username> [-p <password>] [-e <enable_password>]
+
+Dependencies:
+    - netmiko: For SSH connections to network devices
+    - dotenv: For loading credentials from environment variables
+    - ap_gnss_stats: Local libraries for parsing AP GNSS data
+"""
+
+import os
+import sys
+import re
+import json
+import argparse
+import logging
+import socket
+import time
+from datetime import datetime
+from typing import Dict, Any, List, Optional, Tuple
+from pathlib import Path
+import getpass
+import threading
+from collections import OrderedDict
+
+# Add the parent directory to sys.path to allow relative imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+# Import required libraries
+try:
+    from netmiko import ConnectHandler
+    from netmiko.exceptions import NetMikoTimeoutException, NetMikoAuthenticationException
+except ImportError:
+    print("Error: Netmiko library is required. Install it with 'pip install netmiko'")
+    sys.exit(1)
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    print("Warning: python-dotenv not installed. Credentials cannot be loaded from .env file.")
+    load_dotenv = lambda: None
+
+# Import our GNSS parser library
+from ap_gnss_stats.lib.parsers.gnss_info_parser import GnssInfoParser
+
+# Constants
+DEFAULT_LOG_DIR = "logs"
+DEFAULT_OUTPUT_DIR = "output"
+DEFAULT_SSH_PORT = 22
+DEFAULT_SSH_TIMEOUT = 30
+DEFAULT_SSH_CONN_TIMEOUT = 15
+DEFAULT_COMMAND_TIMEOUT = 60
+DEFAULT_SESSION_LOG_EXTENSION = ".log"
+
+
+class TimestampedFileHandler(logging.FileHandler):
+    """Custom log handler that prepends timestamps to each line."""
+
+    def __init__(self, filename, mode='a', encoding=None, delay=False):
+        """Initialize the handler with the specified file parameters."""
+        super().__init__(filename, mode, encoding, delay)
+        
+    def emit(self, record):
+        """Emit a record with timestamp prefix."""
+        try:
+            # Add timestamp to the beginning of the message
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            record.msg = f"[{timestamp}] {record.msg}"
+            super().emit(record)
+        except Exception:
+            self.handleError(record)
+
+
+def setup_logging(ap_name: str, log_dir: str = DEFAULT_LOG_DIR) -> Tuple[logging.Logger, str]:
+    """
+    Set up logging configuration for SSH session.
+    
+    Args:
+        ap_name: Name or IP of the access point
+        log_dir: Directory to store log files
+        
+    Returns:
+        Tuple of (logger, log_file_path)
+    """
+    # Create log directory if it doesn't exist
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Generate timestamp for log filename
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    
+    # Sanitize AP name for filename (replace invalid chars)
+    safe_ap_name = re.sub(r'[^\w\-\.]', '_', ap_name)
+    
+    # Create log filename
+    log_file = os.path.join(log_dir, f"{timestamp}-{safe_ap_name}{DEFAULT_SESSION_LOG_EXTENSION}")
+    
+    # Configure logger
+    logger = logging.getLogger(f"ssh_session_{safe_ap_name}")
+    logger.setLevel(logging.DEBUG)
+    
+    # Set up file handler with timestamp prefix
+    file_handler = TimestampedFileHandler(log_file)
+    formatter = logging.Formatter('%(message)s')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    
+    # Log basic session information
+    logger.info(f"Starting SSH session to {ap_name}")
+    logger.info(f"Session log started at {timestamp}")
+    
+    return logger, log_file
+
+
+def get_credentials() -> Dict[str, str]:
+    """
+    Get credentials from environment variables or .env file.
+    
+    Returns:
+        Dictionary containing credentials
+    """
+    # Try to load .env file if it exists
+    load_dotenv()
+    
+    credentials = {
+        "username": os.getenv("AP_SSH_USERNAME"),
+        "password": os.getenv("AP_SSH_PASSWORD"),
+        "enable_password": os.getenv("AP_SSH_ENABLE_PASSWORD"),
+    }
+    
+    return credentials
+
+
+def connect_to_ap(
+    ap_address: str,
+    username: str,
+    password: str,
+    enable_password: Optional[str] = None,
+    port: int = DEFAULT_SSH_PORT,
+    logger: Optional[logging.Logger] = None,
+) -> Dict[str, Any]:
+    """
+    Connect to an access point via SSH.
+    
+    Args:
+        ap_address: Hostname or IP address of the AP
+        username: SSH username
+        password: SSH password
+        enable_password: Enable mode password (if different from SSH password)
+        port: SSH port number
+        logger: Logger for SSH session
+        
+    Returns:
+        Dictionary containing connection information
+    """
+    # Log connection attempt
+    if logger:
+        logger.info(f"Attempting to resolve hostname: {ap_address}")
+    
+    # Try to resolve hostname to IP (for logging purposes)
+    try:
+        ip_address = socket.gethostbyname(ap_address)
+        if logger and ip_address != ap_address:
+            logger.info(f"Resolved {ap_address} to IP: {ip_address}")
+    except socket.gaierror:
+        ip_address = "Unknown"
+        if logger:
+            logger.info(f"Could not resolve hostname: {ap_address}")
+    
+    # If enable password is not provided, use the login password
+    if not enable_password:
+        enable_password = password
+    
+    # Create a session log file path for Netmiko
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    safe_ap_name = re.sub(r'[^\w\-\.]', '_', ap_address)
+    session_log_path = os.path.join(DEFAULT_LOG_DIR, f"{timestamp}-{safe_ap_name}-netmiko{DEFAULT_SESSION_LOG_EXTENSION}")
+    
+    # Define device parameters for Netmiko
+    device_params = {
+        "device_type": "cisco_ios",  # Use cisco_ios for Cisco APs
+        "host": ap_address,
+        "username": username,
+        "password": password,
+        "port": port,
+        "secret": enable_password,
+        "verbose": True,  # To capture SSH connection details
+        "session_log": session_log_path,  # Use file path instead of logger object
+        "global_delay_factor": 1.5,  # Slightly longer delay for slower devices
+        "conn_timeout": DEFAULT_SSH_CONN_TIMEOUT,
+        "timeout": DEFAULT_SSH_TIMEOUT,
+    }
+    
+    if logger:
+        logger.info(f"Connecting to {ap_address} (port {port}) with username: {username}")
+        logger.info(f"Netmiko session log will be saved to: {session_log_path}")
+    
+    try:
+        # Make sure the log directory exists
+        os.makedirs(os.path.dirname(session_log_path), exist_ok=True)
+        
+        # Connect to the device
+        connection = ConnectHandler(**device_params)
+        
+        if logger:
+            logger.info(f"Successfully connected to {ap_address}")
+
+        return {
+            "success": True,
+            "connection": connection,
+            "address": ap_address,
+            "ip": ip_address,
+        }
+    
+    except NetMikoTimeoutException:
+        error_msg = f"Connection to {ap_address} timed out"
+        if logger:
+            logger.error(error_msg)
+        return {"success": False, "error": error_msg, "address": ap_address}
+    
+    except NetMikoAuthenticationException:
+        error_msg = f"Authentication failed for {ap_address}"
+        if logger:
+            logger.error(error_msg)
+        return {"success": False, "error": error_msg, "address": ap_address}
+    
+    except Exception as e:
+        error_msg = f"Error connecting to {ap_address}: {str(e)}"
+        if logger:
+            logger.error(error_msg)
+        return {"success": False, "error": error_msg, "address": ap_address}
+
+
+def run_ap_commands(
+    connection: Any,
+    logger: Optional[logging.Logger] = None,
+    output_dir: str = DEFAULT_OUTPUT_DIR,
+    include_raw: bool = False
+) -> Dict[str, Any]:
+    """
+    Run commands on the AP and parse the output.
+    
+    Args:
+        connection: Active Netmiko connection
+        logger: Logger for command execution
+        output_dir: Directory to save parsed output
+        include_raw: Whether to include raw data in the output
+        
+    Returns:
+        Dictionary with command execution results
+    """
+    # Make sure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Commands to run in order
+    commands = [
+        "show clock",
+        "show gnss info",
+        "show version",
+        "show inventory"
+    ]
+    
+    # Collect all outputs
+    full_output = ""
+    
+    # Run each command and collect output
+    for command in commands:
+        if logger:
+            logger.info(f"Executing command: {command}")
+        
+        try:
+            # Run command with extended timeout for potentially slow commands
+            command_output = connection.send_command(
+                command, 
+                read_timeout=DEFAULT_COMMAND_TIMEOUT
+            )
+            
+            # If we got output, add it to full output with command prompt
+            if command_output:
+                # Add command with prompt to full output
+                full_output += f"{connection.base_prompt}#{command}\n{command_output}\n\n"
+                
+                if logger:
+                    logger.info(f"Command completed successfully")
+            else:
+                if logger:
+                    logger.warning(f"Command returned no output")
+        
+        except Exception as e:
+            error_msg = f"Error executing command '{command}': {str(e)}"
+            if logger:
+                logger.error(error_msg)
+            
+            # Continue to next command even if this one failed
+            continue
+    
+    # Create a timestamp and hostname for the output filename
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    hostname = connection.base_prompt.replace(" ", "_")
+    
+    # Parse the collected output
+    if logger:
+        logger.info("Parsing collected command output")
+    
+    try:
+        # Use the GnssInfoParser to parse the data
+        parser = GnssInfoParser()
+        parsed_data = parser.parse(full_output)
+        
+        # Add metadata
+        parsed_data["metadata"] = {
+            "parser_version": parser.get_version(),
+            "parse_time": datetime.now().isoformat(),
+            "collection_method": "ssh",
+            "ap_address": connection.host,
+            "collector_timestamp": timestamp
+        }
+        
+        # Create an OrderedDict with metadata first, then add the rest of the data
+        ordered_data = OrderedDict([("metadata", parsed_data["metadata"])])
+        
+        # Add all other keys from parsed_data
+        for key, value in parsed_data.items():
+            if key != "metadata":
+                ordered_data[key] = value
+        
+        # Remove raw_data if not requested
+        if not include_raw and "raw_data" in ordered_data:
+            del ordered_data["raw_data"]
+        
+        # Save the parsed data to a JSON file
+        output_file = os.path.join(output_dir, f"{timestamp}-{hostname}.json")
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(ordered_data, f, indent=4, ensure_ascii=False)
+        
+        if logger:
+            logger.info(f"Parsed data saved to {output_file}")
+        
+        return {
+            "success": True,
+            "hostname": hostname,
+            "output_file": output_file,
+            "parsed_data": ordered_data
+        }
+        
+    except Exception as e:
+        error_msg = f"Error parsing command output: {str(e)}"
+        if logger:
+            logger.error(error_msg)
+        
+        # Save the raw output as a text file since parsing failed
+        raw_output_file = os.path.join(output_dir, f"{timestamp}-{hostname}-raw.txt")
+        
+        with open(raw_output_file, 'w', encoding='utf-8') as f:
+            f.write(full_output)
+        
+        if logger:
+            logger.info(f"Raw output saved to {raw_output_file}")
+        
+        return {
+            "success": False,
+            "hostname": hostname,
+            "error": error_msg,
+            "raw_output_file": raw_output_file
+        }
+
+
+def process_single_ap(
+    ap_address: str,
+    username: str,
+    password: str,
+    enable_password: Optional[str] = None,
+    log_dir: str = DEFAULT_LOG_DIR,
+    output_dir: str = DEFAULT_OUTPUT_DIR,
+    include_raw: bool = False,
+    port: int = DEFAULT_SSH_PORT
+) -> Dict[str, Any]:
+    """
+    Process a single access point.
+    
+    Args:
+        ap_address: AP address (hostname or IP)
+        username: SSH username
+        password: SSH password
+        enable_password: Enable password (if different)
+        log_dir: Directory for session logs
+        output_dir: Directory for command output
+        include_raw: Whether to include raw data
+        port: SSH port
+        
+    Returns:
+        Dictionary with results for the AP
+    """
+    # Set up logging for this AP
+    logger, log_file = setup_logging(ap_address, log_dir)
+    
+    try:
+        # Connect to the AP
+        connection_result = connect_to_ap(
+            ap_address=ap_address,
+            username=username, 
+            password=password,
+            enable_password=enable_password,
+            port=port,
+            logger=logger
+        )
+        
+        if not connection_result["success"]:
+            logger.error(f"Failed to connect: {connection_result.get('error', 'Unknown error')}")
+            return {
+                "ap_address": ap_address,
+                "success": False,
+                "error": connection_result.get("error"),
+                "log_file": log_file
+            }
+        
+        # Successfully connected, run commands
+        connection = connection_result["connection"]
+        
+        # Run commands and parse output
+        command_result = run_ap_commands(
+            connection=connection,
+            logger=logger,
+            output_dir=output_dir,
+            include_raw=include_raw
+        )
+        
+        # Safely disconnect
+        try:
+            logger.info("Disconnecting from AP")
+            connection.disconnect()
+            logger.info("Disconnected successfully")
+        except Exception as e:
+            logger.warning(f"Error during disconnect: {str(e)}")
+        
+        # Return results
+        return {
+            "ap_address": ap_address,
+            "success": command_result["success"],
+            "hostname": command_result.get("hostname", "unknown"),
+            "output_file": command_result.get("output_file"),
+            "raw_output_file": command_result.get("raw_output_file"),
+            "log_file": log_file,
+            "error": command_result.get("error")
+        }
+        
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        return {
+            "ap_address": ap_address,
+            "success": False,
+            "error": str(e),
+            "log_file": log_file
+        }
+
+
+def read_ap_list_from_file(file_path: str) -> List[str]:
+    """
+    Read a list of AP addresses from a file.
+    
+    Args:
+        file_path: Path to file containing AP addresses
+        
+    Returns:
+        List of AP addresses
+    """
+    ap_list = []
+    
+    try:
+        with open(file_path, 'r') as f:
+            for line in f:
+                # Strip whitespace and ignore empty lines or comments
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    ap_list.append(line)
+        
+        return ap_list
+    except Exception as e:
+        print(f"Error reading AP list from {file_path}: {str(e)}")
+        return []
+
+
+def main():
+    """Main function to connect to APs and collect data."""
+    parser = argparse.ArgumentParser(description='Connect to Cisco APs via SSH and collect GNSS data')
+    
+    # Create group for AP selection (either single AP or file with list)
+    ap_group = parser.add_mutually_exclusive_group(required=True)
+    ap_group.add_argument('-a', '--ap-address', help='Hostname or IP address of the AP')
+    ap_group.add_argument('-f', '--file', help='File containing a list of AP addresses')
+    
+    # Authentication parameters
+    parser.add_argument('-u', '--username', help='SSH username')
+    parser.add_argument('-p', '--password', help='SSH password (will prompt if not provided)')
+    parser.add_argument('-e', '--enable-password', help='Enable password (if different from SSH password)')
+    
+    # Other parameters
+    parser.add_argument('--port', type=int, default=DEFAULT_SSH_PORT, help='SSH port number')
+    parser.add_argument('-o', '--output-dir', default=DEFAULT_OUTPUT_DIR, help='Output directory for parsed data')
+    parser.add_argument('-l', '--log-dir', default=DEFAULT_LOG_DIR, help='Directory for SSH session logs')
+    parser.add_argument('-r', '--include-raw', action='store_true', help='Include raw data in parsed output')
+    parser.add_argument('-c', '--concurrent', type=int, default=1, 
+                       help='Number of concurrent AP connections (default: 1)')
+    
+    args = parser.parse_args()
+    
+    # Get credentials (from args, environment, or prompt)
+    env_creds = get_credentials()
+    
+    username = args.username or env_creds["username"]
+    password = args.password or env_creds["password"]
+    enable_password = args.enable_password or env_creds["enable_password"]
+    
+    # Prompt for missing credentials
+    if not username:
+        username = input("Enter SSH username: ")
+    
+    if not password:
+        password = getpass.getpass("Enter SSH password: ")
+    
+    if not enable_password:
+        enable_password_prompt = "Enter enable password (press Enter to use SSH password): "
+        enable_password_input = getpass.getpass(enable_password_prompt)
+        enable_password = enable_password_input if enable_password_input else password
+    
+    # Get list of APs to process
+    ap_list = []
+    if args.ap_address:
+        ap_list = [args.ap_address]
+    elif args.file:
+        ap_list = read_ap_list_from_file(args.file)
+        if not ap_list:
+            print(f"No valid AP addresses found in {args.file}")
+            return 1
+    
+    print(f"Will process {len(ap_list)} access point(s)")
+    
+    # Process APs (single-threaded or multi-threaded)
+    results = []
+    
+    if args.concurrent <= 1 or len(ap_list) == 1:
+        # Single-threaded processing
+        for ap_address in ap_list:
+            print(f"Processing AP: {ap_address}")
+            result = process_single_ap(
+                ap_address=ap_address,
+                username=username,
+                password=password,
+                enable_password=enable_password,
+                log_dir=args.log_dir,
+                output_dir=args.output_dir,
+                include_raw=args.include_raw,
+                port=args.port
+            )
+            results.append(result)
+            print(f"Completed AP: {ap_address} - {'Success' if result['success'] else 'Failed'}")
+            if not result['success']:
+                print(f"  Error: {result.get('error', 'Unknown error')}")
+            print(f"  Log file: {result['log_file']}")
+            if 'output_file' in result:
+                print(f"  Output file: {result['output_file']}")
+    else:
+        # Multi-threaded processing
+        print(f"Using {min(args.concurrent, len(ap_list))} concurrent connections")
+        
+        # Define a thread function
+        def process_ap_thread(ap_address):
+            print(f"Starting thread for AP: {ap_address}")
+            result = process_single_ap(
+                ap_address=ap_address,
+                username=username,
+                password=password,
+                enable_password=enable_password,
+                log_dir=args.log_dir,
+                output_dir=args.output_dir,
+                include_raw=args.include_raw,
+                port=args.port
+            )
+            results.append(result)
+            print(f"Thread completed for AP: {ap_address}")
+        
+        # Create and start threads (with throttling)
+        threads = []
+        max_threads = min(args.concurrent, len(ap_list))
+        active_threads = 0
+        
+        for ap_address in ap_list:
+            # Wait if we've reached max concurrent threads
+            while active_threads >= max_threads:
+                # Check for completed threads
+                for t in threads[:]:
+                    if not t.is_alive():
+                        threads.remove(t)
+                        active_threads -= 1
+                time.sleep(0.5)
+            
+            # Start a new thread
+            thread = threading.Thread(target=process_ap_thread, args=(ap_address,))
+            thread.start()
+            threads.append(thread)
+            active_threads += 1
+        
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+    
+    # Print summary
+    success_count = sum(1 for r in results if r["success"])
+    failure_count = len(results) - success_count
+    
+    print("\nProcessing complete")
+    print(f"  Total APs: {len(results)}")
+    print(f"  Successful: {success_count}")
+    print(f"  Failed: {failure_count}")
+    
+    # Print failures if any
+    if failure_count > 0:
+        print("\nFailed APs:")
+        for result in results:
+            if not result["success"]:
+                print(f"  {result['ap_address']}: {result.get('error', 'Unknown error')}")
+    
+    return 0 if failure_count == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

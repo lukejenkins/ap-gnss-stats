@@ -11,9 +11,9 @@ Tools for parsing and analyzing GNSS (Global Navigation Satellite System) statis
 - [X] Add support for parsing "show version"
 - [X] Add support for parsing "show inventory"
 - [X] Break out the parsing bits into a library
-- [ ] Add support dotenv for configuration
-- [ ] Add support for SSHing to APs and running the commands
-  - [ ] Add support for multiple SSH connections at once
+- [X] Add support dotenv for configuration
+- [X] Add support for SSHing to APs and running the commands
+  - [X] Add support for multiple SSH connections at once
 - [ ] Add support for pushing the parsed data to Prometheus
 - [ ] Add support for pushing the parsed data to InfluxDB
 - [ ] Add example visualizations using Grafana

@@ -35,7 +35,14 @@ htmlcov/
 .pytest_cache/
 
 # Output files
-output/
+output/*
+## But we do want to have the readme
+!output/README.md
+
+# Log Files
+logs/*
+## But we do want to have the readme
+!logs/README.md
 
 # Private examples - important to keep these out of the repository
 !examples/private/

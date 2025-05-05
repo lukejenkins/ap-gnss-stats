@@ -410,38 +410,51 @@ class GnssInfoParser(BaseParser):
         """
         metrics = self._get_default_show_inventory_metrics()
         
-        # Find the show inventory section (prompt or asterisk style)
-        prompt_match = re.search(r'(^|\n)([^\n#]+)#show inventory([\s\S]+?)(\n\2#)', content, re.IGNORECASE)
-        if prompt_match:
-            section = prompt_match.group(3)
-            metrics["inv_parser_found"] = True
-        else:
-            asterisk_match = re.search(r'\*{5} show inventory \*{5}([\s\S]+?)(?=\n\*{5} )', content, re.IGNORECASE)
+        # Find the show inventory section with more flexible pattern matching
+        # Look for the command itself first
+        show_inv_cmd = re.search(r'(?:^|\n)([^\n#]+)#\s*show\s+inventory', content, re.IGNORECASE)
+        if not show_inv_cmd:
+            # Try asterisk format as a fallback
+            asterisk_match = re.search(r'\*{5}\s*show\s+inventory\s*\*{5}([\s\S]+?)(?=\n\*{5}|\Z)', content, re.IGNORECASE)
             if asterisk_match:
                 section = asterisk_match.group(1)
                 metrics["inv_parser_found"] = True
             else:
                 return metrics  # Section not found
+        else:
+            # We found the command, now extract content up to next command prompt
+            ap_prompt = show_inv_cmd.group(1).strip()
+            cmd_pos = show_inv_cmd.end()
+            next_prompt = re.search(r'\n' + re.escape(ap_prompt) + r'#', content[cmd_pos:])
+            
+            if next_prompt:
+                # Extract content between command and next prompt
+                section = content[cmd_pos:cmd_pos + next_prompt.start()]
+            else:
+                # If no next prompt, take a reasonable chunk of text
+                section = content[cmd_pos:cmd_pos + 2000]  # Limit to 2000 chars to avoid taking too much
+            
+            metrics["inv_parser_found"] = True
         
-        # Parse NAME and DESCR
-        name_descr_match = re.search(r'NAME: ([^,]+), DESCR: ([^\n]+)', section)
+        # Parse NAME and DESCR with more flexible pattern matching
+        name_descr_match = re.search(r'NAME\s*:\s*([^,]+),\s*DESCR\s*:\s*([^\n]+)', section, re.IGNORECASE)
         if name_descr_match:
             metrics["inv_ap_type"] = name_descr_match.group(1).strip()
             metrics["inv_ap_descr"] = name_descr_match.group(2).strip()
         
-        # Parse PID, VID, SN
-        pid_vid_sn_match = re.search(r'PID: ([^,]+) , VID: ([^,]+), SN: ([^\n]+)', section)
+        # Parse PID, VID, SN with more flexible pattern
+        pid_vid_sn_match = re.search(r'PID\s*:\s*([^,]+)\s*,\s*VID\s*:\s*([^,]+),\s*SN\s*:\s*([^\n]+)', section, re.IGNORECASE)
         if pid_vid_sn_match:
             metrics["inv_ap_pid"] = pid_vid_sn_match.group(1).strip()
             metrics["inv_ap_vid"] = pid_vid_sn_match.group(2).strip()
             metrics["inv_ap_serial"] = pid_vid_sn_match.group(3).strip()
         
-        # Parse DEVID
-        devid_match = re.search(r'DEVID: ([^\n]+)', section)
+        # Parse DEVID with more flexible pattern
+        devid_match = re.search(r'DEVID\s*:\s*([^\n]+)', section, re.IGNORECASE)
         if devid_match:
             metrics["inv_ap_devid"] = devid_match.group(1).strip()
         
-        # Parse USB fields (if present)
+        # Parse USB fields (if present) with more flexible patterns
         usb_fields = [
             ("inv_usb_detected", r'Detected\s*:\s*([^\n]+)'),
             ("inv_usb_status", r'Status\s*:\s*([^\n]+)'),
@@ -454,9 +467,14 @@ class GnssInfoParser(BaseParser):
         ]
         
         for field_name, pattern in usb_fields:
-            match = re.search(pattern, section)
+            match = re.search(pattern, section, re.IGNORECASE)
             if match:
                 metrics[field_name] = match.group(1).strip()
+        
+        # Debug logging if needed (you can include logging to see what's happening)
+        # if not any(v for k, v in metrics.items() if k != "inv_parser_found"):
+        #     # No values were parsed, log the section for debugging
+        #     print(f"Failed to parse inventory section: {section[:200]}...")
         
         return metrics
 
