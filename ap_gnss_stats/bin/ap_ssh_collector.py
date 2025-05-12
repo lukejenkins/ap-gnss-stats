@@ -14,6 +14,7 @@ Dependencies:
     - netmiko: For SSH connections to network devices
     - dotenv: For loading credentials from environment variables
     - ap_gnss_stats: Local libraries for parsing AP GNSS data
+    - prometheus_client: Optional, for exporting data to Prometheus
 """
 
 import os
@@ -24,6 +25,7 @@ import argparse
 import logging
 import socket
 import time
+import traceback
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
@@ -52,6 +54,20 @@ except ImportError:
 # Import our GNSS parser library
 from ap_gnss_stats.lib.parsers.gnss_info_parser import GnssInfoParser
 
+# Try to import Prometheus exporter
+try:
+    from ap_gnss_stats.lib.exporters import (
+        is_prometheus_available,
+        push_gnss_data_to_prometheus
+    )
+except ImportError:
+    # Define placeholder functions if the module is not available
+    def is_prometheus_available() -> bool:
+        return False
+    
+    def push_gnss_data_to_prometheus(*args, **kwargs) -> bool:
+        return False
+
 # Constants - default values which can be overridden by environment variables
 DEFAULT_LOG_DIR = "logs"
 DEFAULT_OUTPUT_DIR = "output"
@@ -64,6 +80,15 @@ DEFAULT_CONCURRENT_CONNECTIONS = 1
 DEFAULT_INCLUDE_RAW_DATA = False
 DEFAULT_DEVICE_TYPE = "cisco_ios"
 DEFAULT_GLOBAL_DELAY_FACTOR = 1.5
+
+# Prometheus defaults
+DEFAULT_PROMETHEUS_ENABLED = False
+DEFAULT_PROMETHEUS_JOB = "ap_gnss_stats"
+DEFAULT_PROMETHEUS_TIMEOUT = 10
+DEFAULT_PROMETHEUS_URL = None
+DEFAULT_PROMETHEUS_USERNAME = None
+DEFAULT_PROMETHEUS_PASSWORD = None
+DEFAULT_PROMETHEUS_DEBUG = False
 
 # Load environment variables from .env file
 def load_env_config():
@@ -89,6 +114,8 @@ def load_env_config():
     global DEFAULT_SSH_TIMEOUT, DEFAULT_SSH_CONN_TIMEOUT, DEFAULT_COMMAND_TIMEOUT
     global DEFAULT_CONCURRENT_CONNECTIONS, DEFAULT_INCLUDE_RAW_DATA
     global DEFAULT_DEVICE_TYPE, DEFAULT_GLOBAL_DELAY_FACTOR
+    global DEFAULT_PROMETHEUS_ENABLED, DEFAULT_PROMETHEUS_JOB, DEFAULT_PROMETHEUS_TIMEOUT
+    global DEFAULT_PROMETHEUS_URL, DEFAULT_PROMETHEUS_USERNAME, DEFAULT_PROMETHEUS_PASSWORD
     
     # Helper function to get environment variables with type conversion
     def get_env_or_default(env_name, default_value, convert_func=str):
@@ -101,6 +128,11 @@ def load_env_config():
                 print(f"Warning: Invalid value for {env_name}, using default: {default_value}")
         return default_value
     
+    # Helper function to convert string to boolean
+    def str_to_bool(value):
+        """Convert string to boolean value."""
+        return value.lower() in ('true', '1', 'yes', 'y')
+    
     # Update configuration constants from environment variables
     DEFAULT_LOG_DIR = get_env_or_default("AP_LOG_DIR", DEFAULT_LOG_DIR)
     DEFAULT_OUTPUT_DIR = get_env_or_default("AP_OUTPUT_DIR", DEFAULT_OUTPUT_DIR)
@@ -109,9 +141,17 @@ def load_env_config():
     DEFAULT_SSH_CONN_TIMEOUT = get_env_or_default("AP_SSH_CONN_TIMEOUT", DEFAULT_SSH_CONN_TIMEOUT, int)
     DEFAULT_COMMAND_TIMEOUT = get_env_or_default("AP_COMMAND_TIMEOUT", DEFAULT_COMMAND_TIMEOUT, int)
     DEFAULT_CONCURRENT_CONNECTIONS = get_env_or_default("AP_CONCURRENT_CONNECTIONS", DEFAULT_CONCURRENT_CONNECTIONS, int)
-    DEFAULT_INCLUDE_RAW_DATA = get_env_or_default("AP_INCLUDE_RAW_DATA", DEFAULT_INCLUDE_RAW_DATA, lambda x: x.lower() in ('true', '1', 'yes', 'y'))
+    DEFAULT_INCLUDE_RAW_DATA = get_env_or_default("AP_INCLUDE_RAW_DATA", DEFAULT_INCLUDE_RAW_DATA, str_to_bool)
     DEFAULT_DEVICE_TYPE = get_env_or_default("AP_DEVICE_TYPE", DEFAULT_DEVICE_TYPE)
     DEFAULT_GLOBAL_DELAY_FACTOR = get_env_or_default("AP_GLOBAL_DELAY_FACTOR", DEFAULT_GLOBAL_DELAY_FACTOR, float)
+    
+    # Update Prometheus configuration from environment variables
+    DEFAULT_PROMETHEUS_ENABLED = get_env_or_default("AP_PROMETHEUS_ENABLED", DEFAULT_PROMETHEUS_ENABLED, str_to_bool)
+    DEFAULT_PROMETHEUS_JOB = get_env_or_default("AP_PROMETHEUS_JOB", DEFAULT_PROMETHEUS_JOB)
+    DEFAULT_PROMETHEUS_TIMEOUT = get_env_or_default("AP_PROMETHEUS_TIMEOUT", DEFAULT_PROMETHEUS_TIMEOUT, int)
+    DEFAULT_PROMETHEUS_URL = get_env_or_default("AP_PROMETHEUS_URL", DEFAULT_PROMETHEUS_URL)
+    DEFAULT_PROMETHEUS_USERNAME = get_env_or_default("AP_PROMETHEUS_USERNAME", DEFAULT_PROMETHEUS_USERNAME)
+    DEFAULT_PROMETHEUS_PASSWORD = get_env_or_default("AP_PROMETHEUS_PASSWORD", DEFAULT_PROMETHEUS_PASSWORD)
 
 def find_dotenv_file() -> Optional[str]:
     """
@@ -319,7 +359,8 @@ def run_ap_commands(
     connection: Any,
     logger: Optional[logging.Logger] = None,
     output_dir: str = DEFAULT_OUTPUT_DIR,
-    include_raw: bool = False
+    include_raw: bool = False,
+    prometheus_config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Run commands on the AP and parse the output.
@@ -329,6 +370,7 @@ def run_ap_commands(
         logger: Logger for command execution
         output_dir: Directory to save parsed output
         include_raw: Whether to include raw data in the output
+        prometheus_config: Prometheus export configuration, if enabled
         
     Returns:
         Dictionary with command execution results
@@ -421,11 +463,103 @@ def run_ap_commands(
         if logger:
             logger.info(f"Parsed data saved to {output_file}")
         
+        # Export to Prometheus if enabled
+        prometheus_result = {
+            "success": False,
+            "error": "Prometheus export not enabled",
+            "details": None
+        }
+        
+        if prometheus_config and prometheus_config.get("enabled"):
+            if logger:
+                logger.info(f"Exporting data to Prometheus Pushgateway: {prometheus_config.get('url')}")
+            
+            # Check if Prometheus client is available
+            if not is_prometheus_available():
+                error_msg = "Prometheus client library not available. Install with 'pip install prometheus-client'"
+                if logger:
+                    logger.error(error_msg)
+                prometheus_result["error"] = error_msg
+            else:
+                try:
+                    # Get debug mode from config
+                    debug_mode = prometheus_config.get("debug", DEFAULT_PROMETHEUS_DEBUG)
+                    
+                    # Log Prometheus configuration details when debug is enabled
+                    if debug_mode and logger:
+                        logger.info(f"Prometheus configuration: URL={prometheus_config.get('url')}, "
+                                   f"Job={prometheus_config.get('job')}, "
+                                   f"Timeout={prometheus_config.get('timeout')}, "
+                                   f"Auth={'Yes' if prometheus_config.get('username') else 'No'}")
+                        
+                        # Log data sizes to help identify potential issues
+                        data_size = len(json.dumps(ordered_data))
+                        logger.info(f"Data size to be exported: {data_size} bytes")
+                        
+                        # Log some key data points that will be exported
+                        if "gnss_state" in ordered_data:
+                            state = ordered_data["gnss_state"].get("state", "Unknown")
+                            fix_type = ordered_data["gnss_state"].get("fix_type", "Unknown")
+                            logger.info(f"GNSS State: {state}, Fix Type: {fix_type}")
+                    
+                    # Push data to Prometheus with debug mode
+                    push_success = push_gnss_data_to_prometheus(
+                        data=ordered_data,
+                        gateway_url=prometheus_config.get("url"),
+                        job_name=prometheus_config.get("job"),
+                        username=prometheus_config.get("username"),
+                        password=prometheus_config.get("password"),
+                        timeout=prometheus_config.get("timeout", 10),
+                        logger=logger,
+                        debug=debug_mode
+                    )
+                    
+                    if push_success:
+                        if logger:
+                            logger.info("Successfully exported data to Prometheus")
+                        prometheus_result = {
+                            "success": True, 
+                            "error": None,
+                            "details": "Data successfully exported to Prometheus"
+                        }
+                    else:
+                        error_msg = "Failed to export data to Prometheus (see logs for details)"
+                        if logger:
+                            logger.error(error_msg)
+                            # Check log file for possible connectivity issues
+                            logger.info("Verify Prometheus gateway is accessible and properly configured")
+                            logger.info(f"Check connectivity to {prometheus_config.get('url')} from this host")
+                        
+                        prometheus_result = {
+                            "success": False,
+                            "error": error_msg,
+                            "details": "Check logs for more details on the failure"
+                        }
+                        
+                except Exception as e:
+                    error_msg = f"Error exporting to Prometheus: {str(e)}"
+                    if logger:
+                        logger.error(error_msg)
+                        logger.error(f"Exception type: {type(e).__name__}")
+                        
+                        # Provide more verbose error information in debug mode
+                        if prometheus_config.get("debug", DEFAULT_PROMETHEUS_DEBUG):
+                            logger.error(f"Exception traceback: {traceback.format_exc()}")
+                    
+                    prometheus_result = {
+                        "success": False,
+                        "error": error_msg,
+                        "details": traceback.format_exc() if prometheus_config.get("debug", DEFAULT_PROMETHEUS_DEBUG) else None
+                    }
+        
         return {
             "success": True,
             "hostname": hostname,
             "output_file": output_file,
-            "parsed_data": ordered_data
+            "parsed_data": ordered_data,
+            "prometheus_export": prometheus_result["success"],
+            "prometheus_error": prometheus_result["error"],
+            "prometheus_details": prometheus_result["details"]
         }
         
     except Exception as e:
@@ -458,7 +592,8 @@ def process_single_ap(
     log_dir: str = DEFAULT_LOG_DIR,
     output_dir: str = DEFAULT_OUTPUT_DIR,
     include_raw: bool = False,
-    port: int = DEFAULT_SSH_PORT
+    port: int = DEFAULT_SSH_PORT,
+    prometheus_config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Process a single access point.
@@ -472,6 +607,7 @@ def process_single_ap(
         output_dir: Directory for command output
         include_raw: Whether to include raw data
         port: SSH port
+        prometheus_config: Prometheus export configuration, if enabled
         
     Returns:
         Dictionary with results for the AP
@@ -507,7 +643,8 @@ def process_single_ap(
             connection=connection,
             logger=logger,
             output_dir=output_dir,
-            include_raw=include_raw
+            include_raw=include_raw,
+            prometheus_config=prometheus_config
         )
         
         # Safely disconnect
@@ -519,7 +656,7 @@ def process_single_ap(
             logger.warning(f"Error during disconnect: {str(e)}")
         
         # Return results
-        return {
+        result = {
             "ap_address": ap_address,
             "success": command_result["success"],
             "hostname": command_result.get("hostname", "unknown"),
@@ -529,8 +666,20 @@ def process_single_ap(
             "error": command_result.get("error")
         }
         
+        # Add Prometheus export result and details
+        if "prometheus_export" in command_result:
+            result["prometheus_export"] = command_result["prometheus_export"]
+            
+            # Include detailed error information if available
+            if not command_result["prometheus_export"] and "prometheus_error" in command_result:
+                result["prometheus_error"] = command_result.get("prometheus_error")
+                result["prometheus_details"] = command_result.get("prometheus_details")
+        
+        return result
+        
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
+        logger.error(traceback.format_exc())
         return {
             "ap_address": ap_address,
             "success": False,
@@ -565,6 +714,26 @@ def read_ap_list_from_file(file_path: str) -> List[str]:
         return []
 
 
+def get_prometheus_config() -> Dict[str, Any]:
+    """
+    Get Prometheus configuration from environment variables.
+    
+    Returns:
+        Dictionary containing Prometheus configuration
+    """
+    prometheus_config = {
+        "enabled": DEFAULT_PROMETHEUS_ENABLED,
+        "url": DEFAULT_PROMETHEUS_URL,
+        "job": DEFAULT_PROMETHEUS_JOB,
+        "username": DEFAULT_PROMETHEUS_USERNAME,
+        "password": DEFAULT_PROMETHEUS_PASSWORD,
+        "timeout": DEFAULT_PROMETHEUS_TIMEOUT,
+        "debug": DEFAULT_PROMETHEUS_DEBUG
+    }
+    
+    return prometheus_config
+
+
 def main():
     """Main function to connect to APs and collect data."""
     # Load environment variables from .env file
@@ -591,6 +760,23 @@ def main():
     parser.add_argument('-c', '--concurrent', type=int, default=DEFAULT_CONCURRENT_CONNECTIONS, 
                        help=f'Number of concurrent AP connections (default: {DEFAULT_CONCURRENT_CONNECTIONS})')
     
+    # Prometheus parameters
+    prometheus_group = parser.add_argument_group('Prometheus export options')
+    prometheus_group.add_argument('--prometheus', action='store_true', default=DEFAULT_PROMETHEUS_ENABLED,
+                                help='Enable export to Prometheus Pushgateway')
+    prometheus_group.add_argument('--prometheus-url', 
+                                help='URL of the Prometheus Pushgateway (e.g., http://localhost:9091)')
+    prometheus_group.add_argument('--prometheus-job', default=DEFAULT_PROMETHEUS_JOB,
+                                help='Job name for Prometheus metrics')
+    prometheus_group.add_argument('--prometheus-username', 
+                                help='Username for Prometheus Pushgateway authentication')
+    prometheus_group.add_argument('--prometheus-password', 
+                                help='Password for Prometheus Pushgateway authentication')
+    prometheus_group.add_argument('--prometheus-timeout', type=int, default=DEFAULT_PROMETHEUS_TIMEOUT,
+                                help='Timeout in seconds for Prometheus Pushgateway connection')
+    prometheus_group.add_argument('--prometheus-debug', action='store_true', default=DEFAULT_PROMETHEUS_DEBUG,
+                                help='Enable verbose debugging for Prometheus export')
+    
     args = parser.parse_args()
     
     # Get credentials (from args, environment, or prompt)
@@ -611,6 +797,42 @@ def main():
         enable_password_prompt = "Enter enable password (press Enter to use SSH password): "
         enable_password_input = getpass.getpass(enable_password_prompt)
         enable_password = enable_password_input if enable_password_input else password
+    
+    # Get Prometheus configuration
+    prometheus_config = get_prometheus_config()
+    
+    # Override with command line arguments if provided
+    prometheus_config["enabled"] = args.prometheus
+    if args.prometheus_url:
+        prometheus_config["url"] = args.prometheus_url
+    if args.prometheus_job:
+        prometheus_config["job"] = args.prometheus_job
+    if args.prometheus_username:
+        prometheus_config["username"] = args.prometheus_username
+    if args.prometheus_password:
+        prometheus_config["password"] = args.prometheus_password
+    if args.prometheus_timeout:
+        prometheus_config["timeout"] = args.prometheus_timeout
+    prometheus_config["debug"] = args.prometheus_debug
+    
+    # If Prometheus is enabled but URL is not set, prompt for it
+    if prometheus_config["enabled"] and not prometheus_config["url"]:
+        prometheus_config["url"] = input("Enter Prometheus Pushgateway URL: ")
+        if not prometheus_config["url"]:
+            print("Prometheus export disabled due to missing URL")
+            prometheus_config["enabled"] = False
+    
+    # Display Prometheus status
+    if prometheus_config["enabled"]:
+        print(f"Prometheus export enabled, using pushgateway: {prometheus_config['url']}")
+        if prometheus_config["debug"]:
+            print("Prometheus debug mode enabled - detailed logging will be available")
+        
+        # Verify required dependencies
+        if not is_prometheus_available():
+            print("Warning: Prometheus client library not installed. Install with 'pip install prometheus-client'")
+            print("Prometheus export will be skipped.")
+            prometheus_config["enabled"] = False
     
     # Get list of APs to process
     ap_list = []
@@ -644,7 +866,8 @@ def main():
                 log_dir=args.log_dir,
                 output_dir=args.output_dir,
                 include_raw=args.include_raw,
-                port=args.port
+                port=args.port,
+                prometheus_config=prometheus_config
             )
             results.append(result)
             print(f"Completed AP: {ap_address} - {'Success' if result['success'] else 'Failed'}")
@@ -653,6 +876,12 @@ def main():
             print(f"  Log file: {result['log_file']}")
             if 'output_file' in result:
                 print(f"  Output file: {result['output_file']}")
+            if 'prometheus_export' in result:
+                prometheus_status = "Success" if result['prometheus_export'] else "Failed"
+                print(f"  Prometheus export: {prometheus_status}")
+                if not result['prometheus_export'] and 'prometheus_error' in result:
+                    print(f"    Error: {result.get('prometheus_error')}")
+                    print(f"    Check log file for details: {result['log_file']}")
     else:
         # Multi-threaded processing
         print(f"Using {min(args.concurrent, len(ap_list))} concurrent connections")
@@ -668,10 +897,17 @@ def main():
                 log_dir=args.log_dir,
                 output_dir=args.output_dir,
                 include_raw=args.include_raw,
-                port=args.port
+                port=args.port,
+                prometheus_config=prometheus_config
             )
             results.append(result)
             print(f"Thread completed for AP: {ap_address}")
+            # Add immediate Prometheus status feedback for this AP
+            if 'prometheus_export' in result:
+                prometheus_status = "Success" if result['prometheus_export'] else "Failed"
+                print(f"  Prometheus export for {ap_address}: {prometheus_status}")
+                if not result['prometheus_export'] and prometheus_config["debug"]:
+                    print(f"    Error: {result.get('prometheus_error', 'Unknown error')}")
         
         # Create and start threads (with throttling)
         threads = []
@@ -707,6 +943,39 @@ def main():
     print(f"  Successful: {success_count}")
     print(f"  Failed: {failure_count}")
     
+    # Print Prometheus summary if enabled
+    if prometheus_config["enabled"]:
+        prom_success = sum(1 for r in results if r.get("prometheus_export", False))
+        prom_failure = sum(1 for r in results if r.get("prometheus_export") is False)
+        prom_skipped = len(results) - prom_success - prom_failure
+        
+        print("\nPrometheus export summary:")
+        print(f"  Success: {prom_success}")
+        print(f"  Failed: {prom_failure}")
+        if prom_skipped > 0:
+            print(f"  Skipped: {prom_skipped} (parse failures)")
+        
+        # If any Prometheus exports failed, show a detailed summary
+        if prom_failure > 0:
+            print("\nPrometheus export failures:")
+            for result in results:
+                if result.get("prometheus_export") is False:
+                    ap_id = result.get("hostname", result.get("ap_address", "unknown"))
+                    error_msg = result.get("prometheus_error", "Unknown error")
+                    print(f"  {ap_id}: {error_msg}")
+                    # Show the log file location for debugging
+                    print(f"    Log file: {result['log_file']}")
+            
+            # Add troubleshooting tips
+            print("\nTroubleshooting tips:")
+            print("  1. Check connectivity to the Prometheus Pushgateway")
+            print(f"     - Can you reach {prometheus_config['url']} from this host?")
+            print("  2. Verify Pushgateway is running and accepting connections")
+            print("  3. Check the log files for detailed error messages")
+            print("  4. Run with --prometheus-debug flag for more detailed logging")
+            if not prometheus_config["debug"]:
+                print("     Example: Add --prometheus-debug to your command line")
+            
     # Print failures if any
     if failure_count > 0:
         print("\nFailed APs:")
