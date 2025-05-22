@@ -328,6 +328,24 @@ def connect_to_ap(
         
         if logger:
             logger.info(f"Successfully connected to {ap_address}")
+        
+        # Enter privileged mode (enable) to run privileged commands
+        try:
+            if logger:
+                logger.info(f"Entering privileged mode on {ap_address}")
+            connection.enable()
+            if logger:
+                logger.info(f"Successfully entered privileged mode on {ap_address}")
+        except Exception as enable_error:
+            error_msg = f"Failed to enter privileged mode on {ap_address}: {str(enable_error)}"
+            if logger:
+                logger.error(error_msg)
+            # Close the connection since we can't use it properly
+            try:
+                connection.disconnect()
+            except Exception:
+                pass
+            return {"success": False, "error": error_msg, "address": ap_address}
 
         return {
             "success": True,
