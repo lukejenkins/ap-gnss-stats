@@ -255,7 +255,9 @@ def _create_prometheus_metrics_with_counts(
         "dop": 0,
         "uptime": 0,
         "timestamp": 0,
-        "uncertainty": 0
+        "uncertainty": 0,
+        "derivation": 0,  # New category
+        "raw_data": 0      # New category
     }
     
     # Metadata metrics
@@ -356,6 +358,24 @@ def _create_prometheus_metrics_with_counts(
             logger.debug(f"Created {timestamp_count} timestamp metrics for {ap_name}")
     except Exception as e:
         logger.warning(f"Failed to create timestamp metrics: {str(e)}")
+    
+    # Source derivation metrics (new)
+    try:
+        derivation_count = _create_source_derivation_metrics(registry, data, ap_name)
+        metric_counts["derivation"] += derivation_count
+        if debug:
+            logger.debug(f"Created {derivation_count} derivation metrics for {ap_name}")
+    except Exception as e:
+        logger.warning(f"Failed to create derivation metrics: {str(e)}")
+    
+    # Raw data metrics (new)
+    try:
+        raw_data_count = _create_raw_data_metrics(registry, data, ap_name)
+        metric_counts["raw_data"] += raw_data_count
+        if debug:
+            logger.debug(f"Created {raw_data_count} raw data metrics for {ap_name}")
+    except Exception as e:
+        logger.warning(f"Failed to create raw data metrics: {str(e)}")
     
     return metric_counts
 
@@ -495,7 +515,24 @@ def _create_gnss_state_metrics(registry: Any, data: Dict[str, Any], ap_name: str
     external_antenna = 1 if gnss_state_data.get("external_antenna", False) else 0
     g_ant.labels(ap_name=ap_name).set(external_antenna)
     metric_count += 1
-    
+
+    # Additional metrics from gnss_state
+    # RangeRes metric
+    if gnss_state_data.get("rangeres") is not None:
+        g_rangeres = Gauge('ap_gnss_rangeres', 'GNSS range residual value',
+                          ['ap_name'], registry=registry)
+        g_rangeres.labels(ap_name=ap_name).set(gnss_state_data["rangeres"])
+        metric_count += 1
+
+    # GpGstRms metric
+    if gnss_state_data.get("gpgstrms") is not None:
+        g_gpgstrms = Gauge('ap_gnss_gpgstrms', 'GNSS GpGstRms value',
+                          ['ap_name'], registry=registry)
+        g_gpgstrms.labels(ap_name=ap_name).set(gnss_state_data["gpgstrms"])
+        metric_count += 1
+
+    # Fix time and last fix time already handled in timestamp metrics
+
     return metric_count
 
 
@@ -678,6 +715,56 @@ def _create_satellite_metrics(registry: Any, data: Dict[str, Any], ap_name: str)
             band=band
         ).set(count)
         metric_count += 1
+
+    # Add individual satellite metrics
+    # Define metrics for individual satellites
+    g_sat_snr = Gauge('ap_gnss_satellite_snr', 'GNSS satellite signal-to-noise ratio (SNR)',
+                    ['ap_name', 'constellation', 'prn', 'used'], registry=registry)
+    
+    g_sat_elevation = Gauge('ap_gnss_satellite_elevation', 'GNSS satellite elevation in degrees',
+                          ['ap_name', 'constellation', 'prn', 'used'], registry=registry)
+    
+    g_sat_azimuth = Gauge('ap_gnss_satellite_azimuth', 'GNSS satellite azimuth in degrees',
+                         ['ap_name', 'constellation', 'prn', 'used'], registry=registry)
+    
+    # Add per-satellite metrics
+    for sat in satellites:
+        constellation = sat.get("constellation", "Unknown")
+        prn = sat.get("prn", sat.get("id", "unknown"))  # Some logs use 'id' instead of 'prn'
+        used_status = "yes" if sat.get("used", "").lower() == "yes" else "no"
+        
+        # Add SNR/CN0 metric
+        snr_value = sat.get("snr", sat.get("cn0"))  # Some logs use 'cn0' instead of 'snr'
+        if snr_value is not None:
+            g_sat_snr.labels(
+                ap_name=ap_name,
+                constellation=constellation,
+                prn=str(prn),
+                used=used_status
+            ).set(snr_value)
+            metric_count += 1
+        
+        # Add elevation metric
+        elevation = sat.get("elev")
+        if elevation is not None:
+            g_sat_elevation.labels(
+                ap_name=ap_name,
+                constellation=constellation,
+                prn=str(prn),
+                used=used_status
+            ).set(elevation)
+            metric_count += 1
+        
+        # Add azimuth metric
+        azimuth = sat.get("azim")
+        if azimuth is not None:
+            g_sat_azimuth.labels(
+                ap_name=ap_name,
+                constellation=constellation,
+                prn=str(prn),
+                used=used_status
+            ).set(azimuth)
+            metric_count += 1
     
     return metric_count
 
@@ -730,13 +817,46 @@ def _create_uptime_metrics(registry: Any, data: Dict[str, Any], ap_name: str) ->
     metric_count = 0
     show_version = data.get("show_version", {})
     
-    # Uptime
+    # Create uptime gauge
+    g_uptime = Gauge('ap_uptime_seconds', 'AP uptime in seconds',
+                    ['ap_name'], registry=registry)
+    
+    # Look for pre-calculated uptime seconds
     uptime_seconds = show_version.get("ver_uptime_seconds")
+    
+    # If not available, calculate from days, hours, minutes
+    if uptime_seconds is None:
+        days = show_version.get("ap_uptime_days")
+        hours = show_version.get("ap_uptime_hours")
+        minutes = show_version.get("ap_uptime_minutes")
+        
+        # Calculate only if we have all three components
+        if days is not None and hours is not None and minutes is not None:
+            try:
+                uptime_seconds = (int(days) * 86400) + (int(hours) * 3600) + (int(minutes) * 60)
+            except (ValueError, TypeError):
+                uptime_seconds = None
+    
+    # Set the metric if we have uptime
     if uptime_seconds is not None:
-        g_uptime = Gauge('ap_uptime_seconds', 'AP uptime in seconds',
-                        ['ap_name'], registry=registry)
         g_uptime.labels(ap_name=ap_name).set(uptime_seconds)
         metric_count += 1
+    
+    # Add individual uptime components as separate metrics
+    g_uptime_components = Gauge('ap_uptime_component', 'AP uptime components',
+                              ['ap_name', 'component'], registry=registry)
+    
+    for component in ["ap_uptime_days", "ap_uptime_hours", "ap_uptime_minutes"]:
+        value = show_version.get(component)
+        if value is not None:
+            try:
+                g_uptime_components.labels(
+                    ap_name=ap_name, 
+                    component=component.replace("ap_uptime_", "")
+                ).set(int(value))
+                metric_count += 1
+            except (ValueError, TypeError):
+                pass
     
     return metric_count
 
@@ -1121,5 +1241,104 @@ def _create_timestamp_metrics(registry: Any, data: Dict[str, Any], ap_name: str)
                 metric_count += 1
             except (ImportError, ValueError, TypeError):
                 pass
+    
+    return metric_count
+
+
+def _create_source_derivation_metrics(registry: Any, data: Dict[str, Any], ap_name: str) -> int:
+    """
+    Create metrics for location source derivation information.
+    
+    Args:
+        registry: Prometheus collector registry
+        data: Parsed GNSS data
+        ap_name: AP name for labels
+        
+    Returns:
+        int: Number of metrics created
+    """
+    metric_count = 0
+    last_location = data.get("last_location_acquired", {})
+    
+    # Skip if section not found or not available
+    if not last_location or last_location.get("not_available", False):
+        return metric_count
+    
+    # Create metrics for source derivation info
+    g_derivation = Gauge('ap_gnss_location_derivation_info', 'GNSS location derivation information',
+                        ['ap_name', 'derivation_type'], registry=registry)
+    
+    derivation_type = last_location.get("derivation_type")
+    if derivation_type:
+        g_derivation.labels(ap_name=ap_name, derivation_type=derivation_type).set(1)
+        metric_count += 1
+    
+    # Add parser availability indicators
+    for parser_section, section_name in [
+        ("gnss_postprocessor", "gnss_pp_parser_found"),
+        ("cisco_gnss", "cisco_gnss_parser_found"),
+        ("last_location_acquired", "last_location_parser_found")
+    ]:
+        section_data = data.get(parser_section, {})
+        if section_data and section_data.get(section_name) is not None:
+            g_parser = Gauge(f'ap_gnss_{parser_section}_available', 
+                            f'GNSS {parser_section} availability (1=available, 0=not available)',
+                            ['ap_name'], registry=registry)
+            g_parser.labels(ap_name=ap_name).set(1 if section_data.get(section_name) else 0)
+            metric_count += 1
+            
+            # If parser found but data not available, set separate metric
+            if section_data.get(section_name) and section_data.get("not_available", False):
+                g_avail = Gauge(f'ap_gnss_{parser_section}_data_available', 
+                               f'GNSS {parser_section} data availability (1=available, 0=not available)',
+                               ['ap_name'], registry=registry)
+                g_avail.labels(ap_name=ap_name).set(0)  # not available
+                metric_count += 1
+    
+    return metric_count
+
+
+def _create_raw_data_metrics(registry: Any, data: Dict[str, Any], ap_name: str) -> int:
+    """
+    Create metrics from raw data key-value pairs.
+    
+    Args:
+        registry: Prometheus collector registry
+        data: Parsed GNSS data
+        ap_name: AP name for labels
+        
+    Returns:
+        int: Number of metrics created
+    """
+    metric_count = 0
+    raw_data = data.get("raw_data", {})
+    
+    # Skip if no raw data available
+    if not raw_data:
+        return metric_count
+    
+    # Create gauge for numeric raw data values
+    g_raw = Gauge('ap_gnss_raw_data', 'GNSS raw data values',
+                 ['ap_name', 'key'], registry=registry)
+    
+    # Create info gauge for non-numeric values
+    g_raw_info = Gauge('ap_gnss_raw_data_info', 'GNSS raw data string values',
+                      ['ap_name', 'key', 'value'], registry=registry)
+    
+    # Process each raw data item
+    for key, value in raw_data.items():
+        # Handle different value types
+        if isinstance(value, (int, float)):
+            # Numeric values get a gauge with the value
+            g_raw.labels(ap_name=ap_name, key=key).set(value)
+            metric_count += 1
+        elif isinstance(value, bool):
+            # Boolean values as 0/1 gauge
+            g_raw.labels(ap_name=ap_name, key=key).set(1 if value else 0)
+            metric_count += 1
+        elif isinstance(value, str):
+            # String values get an info metric with value as label
+            g_raw_info.labels(ap_name=ap_name, key=key, value=value).set(1)
+            metric_count += 1
     
     return metric_count
