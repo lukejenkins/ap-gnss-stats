@@ -1,7 +1,7 @@
 # Python artifacts
 __pycache__/
 *.py[cod]
-*$py.classbb
+*$py.class
 *.so
 .Python
 env/
@@ -21,6 +21,7 @@ var/
 
 # Virtual environments
 venv/
+.venv/
 ENV/
 
 # IDE files
@@ -55,7 +56,7 @@ examples/private/*
 .DS_Store
 .AppleDouble
 .LSOverride
-Icon[
+Icon
 ]
 
 ## Thumbnails

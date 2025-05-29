@@ -58,7 +58,8 @@ from ap_gnss_stats.lib.parsers.gnss_info_parser import GnssInfoParser
 try:
     from ap_gnss_stats.lib.exporters import (
         is_prometheus_available,
-        push_gnss_data_to_prometheus
+        push_gnss_data_to_prometheus,
+        export_gnss_data_to_csv
     )
 except ImportError:
     # Define placeholder functions if the module is not available
@@ -66,6 +67,9 @@ except ImportError:
         return False
     
     def push_gnss_data_to_prometheus(*args, **kwargs) -> bool:
+        return False
+    
+    def export_gnss_data_to_csv(*args, **kwargs) -> bool:
         return False
 
 # Constants - default values which can be overridden by environment variables
@@ -90,32 +94,25 @@ DEFAULT_PROMETHEUS_USERNAME = None
 DEFAULT_PROMETHEUS_PASSWORD = None
 DEFAULT_PROMETHEUS_DEBUG = False
 
+# CSV export defaults
+DEFAULT_CSV_ENABLED = False
+DEFAULT_CSV_OUTPUT_FILE = None
+DEFAULT_CSV_APPEND_MODE = False
+
 # Load environment variables from .env file
 def load_env_config():
-    """
-    Load environment variables from .env file and update default constants.
-    
-    This function loads the .env file and updates the script's default
-    configuration values based on environment variables if they exist.
-    """
-    # Look for .env file in the current directory and parent directories
-    dotenv_path = find_dotenv_file()
-    
-    # Load the .env file if found
-    if dotenv_path:
-        print(f"Loading configuration from: {dotenv_path}")
-        load_dotenv(dotenv_path)
-    else:
-        # Try default load_dotenv which looks in current directory and parent directories
-        load_dotenv()
-    
-    # Update defaults from environment variables
-    global DEFAULT_LOG_DIR, DEFAULT_OUTPUT_DIR, DEFAULT_SSH_PORT
-    global DEFAULT_SSH_TIMEOUT, DEFAULT_SSH_CONN_TIMEOUT, DEFAULT_COMMAND_TIMEOUT
-    global DEFAULT_CONCURRENT_CONNECTIONS, DEFAULT_INCLUDE_RAW_DATA
-    global DEFAULT_DEVICE_TYPE, DEFAULT_GLOBAL_DELAY_FACTOR
-    global DEFAULT_PROMETHEUS_ENABLED, DEFAULT_PROMETHEUS_JOB, DEFAULT_PROMETHEUS_TIMEOUT
+    """Load configuration from environment variables or .env file."""
     global DEFAULT_PROMETHEUS_URL, DEFAULT_PROMETHEUS_USERNAME, DEFAULT_PROMETHEUS_PASSWORD
+    global DEFAULT_CSV_ENABLED, DEFAULT_CSV_OUTPUT_FILE, DEFAULT_CSV_APPEND_MODE
+    
+    # Try to load from .env file first
+    env_file = find_dotenv_file()
+    if env_file:
+        load_dotenv(env_file)
+        print(f"Loaded environment configuration from: {env_file}")
+    else:
+        # Try default .env locations
+        load_dotenv()  # Tries .env in current directory
     
     # Helper function to get environment variables with type conversion
     def get_env_or_default(env_name, default_value, convert_func=str):
@@ -133,25 +130,16 @@ def load_env_config():
         """Convert string to boolean value."""
         return value.lower() in ('true', '1', 'yes', 'y')
     
-    # Update configuration constants from environment variables
-    DEFAULT_LOG_DIR = get_env_or_default("AP_LOG_DIR", DEFAULT_LOG_DIR)
-    DEFAULT_OUTPUT_DIR = get_env_or_default("AP_OUTPUT_DIR", DEFAULT_OUTPUT_DIR)
-    DEFAULT_SSH_PORT = get_env_or_default("AP_SSH_PORT", DEFAULT_SSH_PORT, int)
-    DEFAULT_SSH_TIMEOUT = get_env_or_default("AP_SSH_TIMEOUT", DEFAULT_SSH_TIMEOUT, int)
-    DEFAULT_SSH_CONN_TIMEOUT = get_env_or_default("AP_SSH_CONN_TIMEOUT", DEFAULT_SSH_CONN_TIMEOUT, int)
-    DEFAULT_COMMAND_TIMEOUT = get_env_or_default("AP_COMMAND_TIMEOUT", DEFAULT_COMMAND_TIMEOUT, int)
-    DEFAULT_CONCURRENT_CONNECTIONS = get_env_or_default("AP_CONCURRENT_CONNECTIONS", DEFAULT_CONCURRENT_CONNECTIONS, int)
-    DEFAULT_INCLUDE_RAW_DATA = get_env_or_default("AP_INCLUDE_RAW_DATA", DEFAULT_INCLUDE_RAW_DATA, str_to_bool)
-    DEFAULT_DEVICE_TYPE = get_env_or_default("AP_DEVICE_TYPE", DEFAULT_DEVICE_TYPE)
-    DEFAULT_GLOBAL_DELAY_FACTOR = get_env_or_default("AP_GLOBAL_DELAY_FACTOR", DEFAULT_GLOBAL_DELAY_FACTOR, float)
     
     # Update Prometheus configuration from environment variables
-    DEFAULT_PROMETHEUS_ENABLED = get_env_or_default("AP_PROMETHEUS_ENABLED", DEFAULT_PROMETHEUS_ENABLED, str_to_bool)
-    DEFAULT_PROMETHEUS_JOB = get_env_or_default("AP_PROMETHEUS_JOB", DEFAULT_PROMETHEUS_JOB)
-    DEFAULT_PROMETHEUS_TIMEOUT = get_env_or_default("AP_PROMETHEUS_TIMEOUT", DEFAULT_PROMETHEUS_TIMEOUT, int)
     DEFAULT_PROMETHEUS_URL = get_env_or_default("AP_PROMETHEUS_URL", DEFAULT_PROMETHEUS_URL)
     DEFAULT_PROMETHEUS_USERNAME = get_env_or_default("AP_PROMETHEUS_USERNAME", DEFAULT_PROMETHEUS_USERNAME)
     DEFAULT_PROMETHEUS_PASSWORD = get_env_or_default("AP_PROMETHEUS_PASSWORD", DEFAULT_PROMETHEUS_PASSWORD)
+    
+    # Update CSV configuration from environment variables
+    DEFAULT_CSV_ENABLED = get_env_or_default("AP_CSV_ENABLED", DEFAULT_CSV_ENABLED, str_to_bool)
+    DEFAULT_CSV_OUTPUT_FILE = get_env_or_default("AP_CSV_OUTPUT_FILE", DEFAULT_CSV_OUTPUT_FILE)
+    DEFAULT_CSV_APPEND_MODE = get_env_or_default("AP_CSV_APPEND_MODE", DEFAULT_CSV_APPEND_MODE, str_to_bool)
 
 def find_dotenv_file() -> Optional[str]:
     """
@@ -378,7 +366,8 @@ def run_ap_commands(
     logger: Optional[logging.Logger] = None,
     output_dir: str = DEFAULT_OUTPUT_DIR,
     include_raw: bool = False,
-    prometheus_config: Optional[Dict[str, Any]] = None
+    prometheus_config: Optional[Dict[str, Any]] = None,
+    csv_config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Run commands on the AP and parse the output.
@@ -389,6 +378,7 @@ def run_ap_commands(
         output_dir: Directory to save parsed output
         include_raw: Whether to include raw data in the output
         prometheus_config: Prometheus export configuration, if enabled
+        csv_config: CSV export configuration, if enabled
         
     Returns:
         Dictionary with command execution results
@@ -445,6 +435,24 @@ def run_ap_commands(
     # Parse the collected output
     if logger:
         logger.info("Parsing collected command output")
+    
+    # Check if we have any output to parse
+    if not full_output or not full_output.strip():
+        error_msg = "No command output collected for parsing"
+        if logger:
+            logger.error(error_msg)
+        
+        # Save an empty raw output file to indicate the issue
+        raw_output_file = os.path.join(output_dir, f"{timestamp}-{hostname}-no-output.txt")
+        with open(raw_output_file, 'w', encoding='utf-8') as f:
+            f.write("No command output was collected - all commands may have failed or returned empty results\n")
+        
+        return {
+            "success": False,
+            "hostname": hostname,
+            "error": error_msg,
+            "raw_output_file": raw_output_file
+        }
     
     try:
         # Use the GnssInfoParser to parse the data
@@ -570,14 +578,46 @@ def run_ap_commands(
                         "details": traceback.format_exc() if prometheus_config.get("debug", DEFAULT_PROMETHEUS_DEBUG) else None
                     }
         
+        # Store the parsed data for potential CSV export later
+        csv_result = {
+            "success": False,
+            "error": "CSV export not enabled",
+            "details": None
+        }
+        
+        # Determine if this should be considered a successful result
+        # Success means we have meaningful parsed data beyond just metadata
+        success = True
+        error_msg = None
+        
+        # Check if we have meaningful parsed data
+        if not ordered_data or len(ordered_data) <= 1:  # Only metadata
+            success = False
+            error_msg = "Parsed data is empty or contains only metadata"
+            if logger:
+                logger.warning(error_msg)
+        else:
+            # Check if main data sections are present
+            main_sections = ['gnss_state', 'show_version', 'satellites']
+            has_data = any(section in ordered_data for section in main_sections)
+            if not has_data:
+                success = False
+                error_msg = "Parsed data missing main GNSS/version sections"
+                if logger:
+                    logger.warning(error_msg)
+        
         return {
-            "success": True,
+            "success": success,
             "hostname": hostname,
             "output_file": output_file,
-            "parsed_data": ordered_data,
+            "parsed_data": ordered_data if success else None,
+            "error": error_msg,
             "prometheus_export": prometheus_result["success"],
             "prometheus_error": prometheus_result["error"],
-            "prometheus_details": prometheus_result["details"]
+            "prometheus_details": prometheus_result["details"],
+            "csv_export": csv_result["success"],
+            "csv_error": csv_result["error"],
+            "csv_details": csv_result["details"]
         }
         
     except Exception as e:
@@ -611,7 +651,8 @@ def process_single_ap(
     output_dir: str = DEFAULT_OUTPUT_DIR,
     include_raw: bool = False,
     port: int = DEFAULT_SSH_PORT,
-    prometheus_config: Optional[Dict[str, Any]] = None
+    prometheus_config: Optional[Dict[str, Any]] = None,
+    csv_config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Process a single access point.
@@ -626,6 +667,7 @@ def process_single_ap(
         include_raw: Whether to include raw data
         port: SSH port
         prometheus_config: Prometheus export configuration, if enabled
+        csv_config: CSV export configuration, if enabled
         
     Returns:
         Dictionary with results for the AP
@@ -662,7 +704,8 @@ def process_single_ap(
             logger=logger,
             output_dir=output_dir,
             include_raw=include_raw,
-            prometheus_config=prometheus_config
+            prometheus_config=prometheus_config,
+            csv_config=csv_config
         )
         
         # Safely disconnect
@@ -683,6 +726,10 @@ def process_single_ap(
             "log_file": log_file,
             "error": command_result.get("error")
         }
+        
+        # Include parsed_data for CSV export if available
+        if "parsed_data" in command_result:
+            result["parsed_data"] = command_result["parsed_data"]
         
         # Add Prometheus export result and details
         if "prometheus_export" in command_result:
@@ -752,6 +799,22 @@ def get_prometheus_config() -> Dict[str, Any]:
     return prometheus_config
 
 
+def get_csv_config() -> Dict[str, Any]:
+    """
+    Get CSV export configuration from environment variables.
+    
+    Returns:
+        Dictionary with CSV configuration
+    """
+    csv_config = {
+        "enabled": DEFAULT_CSV_ENABLED,
+        "output_file": DEFAULT_CSV_OUTPUT_FILE,
+        "append_mode": DEFAULT_CSV_APPEND_MODE
+    }
+    
+    return csv_config
+
+
 def main():
     """Main function to connect to APs and collect data."""
     # Load environment variables from .env file
@@ -795,6 +858,15 @@ def main():
     prometheus_group.add_argument('--prometheus-debug', action='store_true', default=DEFAULT_PROMETHEUS_DEBUG,
                                 help='Enable verbose debugging for Prometheus export')
     
+    # CSV export parameters
+    csv_group = parser.add_argument_group('CSV export options')
+    csv_group.add_argument('--csv', action='store_true', default=DEFAULT_CSV_ENABLED,
+                          help='Enable export to CSV format')
+    csv_group.add_argument('--csv-output', 
+                          help='Output CSV file path (default: auto-generated with timestamp)')
+    csv_group.add_argument('--csv-append', action='store_true', default=DEFAULT_CSV_APPEND_MODE,
+                          help='Append to existing CSV file instead of overwriting')
+    
     args = parser.parse_args()
     
     # Get credentials (from args, environment, or prompt)
@@ -819,6 +891,9 @@ def main():
     # Get Prometheus configuration
     prometheus_config = get_prometheus_config()
     
+    # Get CSV configuration
+    csv_config = get_csv_config()
+    
     # Override with command line arguments if provided
     prometheus_config["enabled"] = args.prometheus
     if args.prometheus_url:
@@ -832,6 +907,17 @@ def main():
     if args.prometheus_timeout:
         prometheus_config["timeout"] = args.prometheus_timeout
     prometheus_config["debug"] = args.prometheus_debug
+    
+    # Override CSV configuration with command line arguments if provided
+    csv_config["enabled"] = args.csv
+    if args.csv_output:
+        csv_config["output_file"] = args.csv_output
+    csv_config["append_mode"] = args.csv_append
+    
+    # If CSV is enabled, set up output file if not specified
+    if csv_config["enabled"] and not csv_config["output_file"]:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        csv_config["output_file"] = f"ap_gnss_export_{timestamp}.csv"
     
     # If Prometheus is enabled but URL is not set, prompt for it
     if prometheus_config["enabled"] and not prometheus_config["url"]:
@@ -851,6 +937,12 @@ def main():
             print("Warning: Prometheus client library not installed. Install with 'pip install prometheus-client'")
             print("Prometheus export will be skipped.")
             prometheus_config["enabled"] = False
+    
+    # Display CSV status
+    if csv_config["enabled"]:
+        print(f"CSV export enabled, output file: {csv_config['output_file']}")
+        append_mode_text = "append" if csv_config["append_mode"] else "overwrite"
+        print(f"CSV mode: {append_mode_text}")
     
     # Get list of APs to process
     ap_list = []
@@ -885,7 +977,8 @@ def main():
                 output_dir=args.output_dir,
                 include_raw=args.include_raw,
                 port=args.port,
-                prometheus_config=prometheus_config
+                prometheus_config=prometheus_config,
+                csv_config=csv_config
             )
             results.append(result)
             print(f"Completed AP: {ap_address} - {'Success' if result['success'] else 'Failed'}")
@@ -916,7 +1009,8 @@ def main():
                 output_dir=args.output_dir,
                 include_raw=args.include_raw,
                 port=args.port,
-                prometheus_config=prometheus_config
+                prometheus_config=prometheus_config,
+                csv_config=csv_config
             )
             results.append(result)
             print(f"Thread completed for AP: {ap_address}")
@@ -993,6 +1087,83 @@ def main():
             print("  4. Run with --prometheus-debug flag for more detailed logging")
             if not prometheus_config["debug"]:
                 print("     Example: Add --prometheus-debug to your command line")
+    
+    # Export to CSV if enabled and we have successful results
+    if csv_config["enabled"] and success_count > 0:
+        print(f"\nExporting {success_count} successful AP record(s) to CSV: {csv_config['output_file']}")
+        
+        # Collect parsed data from successful results
+        csv_data_list = []
+        missing_data_count = 0
+        
+        # Debug: Check result structure for successful APs
+        print("Debug: Analyzing successful AP results...")
+        successful_aps = [r for r in results if r.get("success")]
+        print(f"  Total successful APs: {len(successful_aps)}")
+        
+        # Count different types of results
+        with_parsed_data = 0
+        without_parsed_data = 0
+        
+        for i, result in enumerate(successful_aps):
+            ap_addr = result.get('ap_address', 'unknown')
+            has_parsed_data = "parsed_data" in result
+            
+            if has_parsed_data:
+                with_parsed_data += 1
+                # Only show details for first few and last few, or if there are issues
+                if i < 5 or i >= len(successful_aps) - 5 or len(successful_aps) <= 10:
+                    print(f"  [{i+1}] {ap_addr}: parsed_data=True")
+            else:
+                without_parsed_data += 1
+                print(f"  [{i+1}] {ap_addr}: parsed_data=False")
+                # Check what keys are available
+                available_keys = list(result.keys())
+                print(f"    Available keys: {available_keys}")
+                if 'error' in result:
+                    print(f"    Error: {result['error']}")
+        
+        # Show summary for large lists
+        if len(successful_aps) > 10:
+            print(f"  ... (showing first 5 and last 5 of {len(successful_aps)} successful APs)")
+        
+        print(f"  Summary: {with_parsed_data} with data, {without_parsed_data} missing data")
+        
+        # Collect the data
+        for result in successful_aps:
+            if "parsed_data" in result:
+                csv_data_list.append(result["parsed_data"])
+        
+        if without_parsed_data > 0:
+            print(f"Warning: {without_parsed_data} successful APs are missing parsed_data")
+        
+        if csv_data_list:
+            try:
+                # Export to CSV using the CSV exporter with append mode support
+                export_success = export_gnss_data_to_csv(
+                    data=csv_data_list,
+                    output_file=csv_config["output_file"],
+                    append_mode=csv_config["append_mode"]
+                )
+                
+                if export_success:
+                    action = "appended to" if csv_config["append_mode"] else "created"
+                    print(f"CSV export successful: {action} {csv_config['output_file']}")
+                    # Get some file stats
+                    try:
+                        file_size = os.path.getsize(csv_config["output_file"])
+                        print(f"CSV file size: {file_size:,} bytes")
+                    except Exception:
+                        pass
+                else:
+                    print("CSV export failed - check logs for details")
+                    
+            except Exception as e:
+                print(f"CSV export error: {str(e)}")
+        else:
+            print("No valid data available for CSV export")
+    elif csv_config["enabled"] and success_count == 0:
+        print("\nCSV export skipped - no successful AP data to export")
             
     # Print failures if any
     if failure_count > 0:
