@@ -25,7 +25,8 @@ except ImportError:
 
 # Try to import dateutil; if it fails, we'll handle it gracefully
 try:
-    from dateutil import parser as dateutil_parser
+    # More explicit import to help IDE recognition
+    import dateutil.parser as dateutil_parser
     DATEUTIL_AVAILABLE = True
 except ImportError:
     DATEUTIL_AVAILABLE = False

@@ -19,19 +19,19 @@ Dependencies:
 
 import os
 import sys
-import re
 import json
-import argparse
+import re
 import logging
+import argparse
+from datetime import datetime
+from typing import Dict, Any, List, Optional, Tuple, Callable, TypeVar, Union, Mapping
+from pathlib import Path
+from collections import OrderedDict
+import getpass
+import threading
 import socket
 import time
 import traceback
-from datetime import datetime
-from typing import Dict, Any, List, Optional, Tuple
-from pathlib import Path
-import getpass
-import threading
-from collections import OrderedDict
 
 # Add the parent directory to sys.path to allow relative imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -48,8 +48,8 @@ try:
     from dotenv import load_dotenv
 except ImportError:
     print("Warning: python-dotenv not installed. Credentials cannot be loaded from .env file.")
-    # Define a no-op function as fallback
-    load_dotenv = lambda: None
+    # Define a no-op function as fallback that accepts any arguments
+    load_dotenv = lambda *args, **kwargs: None
 
 # Import our GNSS parser library
 from ap_gnss_stats.lib.parsers.gnss_info_parser import GnssInfoParser
@@ -115,8 +115,17 @@ def load_env_config():
         load_dotenv()  # Tries .env in current directory
     
     # Helper function to get environment variables with type conversion
-    def get_env_or_default(env_name, default_value, convert_func=str):
-        """Get environment variable with type conversion or return default."""
+    def get_env_or_default(env_name: str, default_value: Any, convert_func: Callable[[str], Any] = str) -> Any:
+        """Get environment variable with type conversion or return default.
+        
+        Args:
+            env_name: Name of the environment variable
+            default_value: Default value if env variable not found or invalid
+            convert_func: Function or type class to convert string to desired type
+        
+        Returns:
+            The converted value from environment variable or the default value
+        """
         env_value = os.getenv(env_name)
         if env_value is not None:
             try:
@@ -126,7 +135,7 @@ def load_env_config():
         return default_value
     
     # Helper function to convert string to boolean
-    def str_to_bool(value):
+    def str_to_bool(value: str) -> bool:
         """Convert string to boolean value."""
         return value.lower() in ('true', '1', 'yes', 'y')
     
@@ -224,12 +233,12 @@ def setup_logging(ap_name: str, log_dir: str = DEFAULT_LOG_DIR) -> Tuple[logging
     return logger, log_file
 
 
-def get_credentials() -> Dict[str, str]:
+def get_credentials() -> Dict[str, Optional[str]]:
     """
     Get credentials from environment variables or .env file.
     
     Returns:
-        Dictionary containing credentials
+        Dictionary containing credentials, values may be None if not found
     """
     # Try to load .env file if it exists
     load_dotenv()
@@ -507,7 +516,7 @@ def run_ap_commands(
         }
         
         # Create an OrderedDict with metadata first, then add the rest of the data
-        ordered_data = OrderedDict([("metadata", parsed_data["metadata"])])
+        ordered_data: Dict[str, Any] = OrderedDict([("metadata", parsed_data["metadata"])])
         
         # Add all other keys from parsed_data
         for key, value in parsed_data.items():
@@ -629,7 +638,7 @@ def run_ap_commands(
         error_msg = None
         
         # Check if we have meaningful parsed data
-        if not ordered_data or len(ordered_data) <= 1:  # Only metadata
+        if not ordered_data or len(ordered_data) <= 1: # Only metadata
             success = False
             error_msg = "Parsed data is empty or contains only metadata"
             if logger:
@@ -805,9 +814,12 @@ def read_ap_list_from_file(file_path: str) -> List[str]:
     ap_list = []
     
     try:
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 # Strip whitespace and ignore empty lines or comments
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    ap_list.append(line)# Strip whitespace and ignore empty lines or comments
                 line = line.strip()
                 if line and not line.startswith('#'):
                     ap_list.append(line)
@@ -989,10 +1001,12 @@ def main():
         ap_list = [args.ap_address]
     elif args.file:
         # Check if the file is an environment variable
-        file_path = args.file
-        if not os.path.isfile(file_path) and os.getenv("AP_LIST_FILE"):
-            file_path = os.getenv("AP_LIST_FILE")
-            
+        file_path = os.getenv("AP_LIST_FILE") if not os.path.isfile(args.file) else args.file
+        if not file_path:
+            print(f"Error: Could not find AP list file at {args.file}")
+            print("And AP_LIST_FILE environment variable is not set")
+            return 1
+        
         ap_list = read_ap_list_from_file(file_path)
         if not ap_list:
             print(f"No valid AP addresses found in {file_path}")
