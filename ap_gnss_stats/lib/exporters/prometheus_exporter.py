@@ -23,6 +23,13 @@ try:
 except ImportError:
     PROMETHEUS_AVAILABLE = False
 
+# Try to import dateutil; if it fails, we'll handle it gracefully
+try:
+    from dateutil import parser as dateutil_parser
+    DATEUTIL_AVAILABLE = True
+except ImportError:
+    DATEUTIL_AVAILABLE = False
+
 
 def is_prometheus_available() -> bool:
     """
@@ -984,25 +991,32 @@ def _create_version_metrics(registry: Any, data: Dict[str, Any], ap_name: str) -
         metric_count += 1
     
     # Cloud ID (as info metric)
-    cloud_id = show_version.get("cloud_id")
-    if cloud_id:
-        g_cloud = Gauge('ap_cloud_id_info', 'AP Cloud ID information',
-                      ['ap_name', 'cloud_id'], registry=registry)
-        g_cloud.labels(ap_name=ap_name, cloud_id=cloud_id).set(1)
-        metric_count += 1
-    
     # Last reload information (as a timestamp)
     last_reload_time = show_version.get("last_reload_time")
     if last_reload_time:
         try:
             # Try to parse the reload time (format can vary)
             # Common format: "Mon Apr 21 16:13:20 UTC 2025"
-            import datetime
-            import time
-            from dateutil import parser
             
-            # Use dateutil to handle various date formats
-            dt = parser.parse(last_reload_time)
+            if DATEUTIL_AVAILABLE:
+                dt = dateutil_parser.parse(last_reload_time)
+            else:
+                # Try common Cisco date formats
+                formats = [
+                    "%a %b %d %H:%M:%S %Z %Y",  # Mon Apr 21 16:13:20 UTC 2025
+                    "%Y-%m-%d %H:%M:%S",       # 2025-04-21 16:13:20
+                    "%d %b %Y %H:%M:%S"        # 21 Apr 2025 16:13:20
+                ]
+                
+                for fmt in formats:
+                    try:
+                        dt = datetime.strptime(last_reload_time, fmt)
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    raise ValueError(f"Could not parse reload date: {last_reload_time}")
+            
             unix_timestamp = dt.timestamp()
             
             g_reload = Gauge('ap_last_reload_timestamp', 'AP last reload timestamp',
@@ -1016,6 +1030,10 @@ def _create_version_metrics(registry: Any, data: Dict[str, Any], ap_name: str) -
                                   ['ap_name', 'reason'], registry=registry)
             g_reload_reason.labels(ap_name=ap_name, reason=reload_reason).set(1)
             metric_count += 1
+            
+        except (ValueError, TypeError):
+            # Skip if parsing fails
+            pass
             
         except (ImportError, ValueError, TypeError):
             # Skip if parsing fails or dateutil not available
@@ -1174,40 +1192,56 @@ def _create_timestamp_metrics(registry: Any, data: Dict[str, Any], ap_name: str)
     """
     metric_count = 0
     
-    # Create timestamp gauge
-    g_timestamp = Gauge('ap_gnss_timestamp', 'Various GNSS timestamps as Unix epoch seconds',
+    # Initialize timestamp gauge
+    g_timestamp = Gauge('ap_gnss_timestamp', 'GNSS timestamp metrics in Unix time',
                       ['ap_name', 'source', 'type'], registry=registry)
     
-    # Add last export timestamp (current time)
-    g_timestamp.labels(ap_name=ap_name, source="exporter", type="last_export").set(time.time())
-    metric_count += 1
-    
-    # GNSS fix timestamps
+    # Process GNSS state timestamps
     gnss_state_data = data.get("gnss_state", {})
-    
     if gnss_state_data and not gnss_state_data.get("no_gnss_detected", False):
-        # GNSS fix time and last fix time
         fix_time = gnss_state_data.get("gnss_fix_time")
         last_fix_time = gnss_state_data.get("last_fix_time")
         
         # Try to convert gnss_fix_time to timestamp if available
         if fix_time:
             try:
-                from dateutil import parser
-                dt = parser.parse(fix_time)
+                if DATEUTIL_AVAILABLE:
+                    dt = dateutil_parser.parse(fix_time)
+                else:
+                    # Fallback to standard datetime parsing with common formats
+                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S"]:
+                        try:
+                            dt = datetime.strptime(fix_time, fmt)
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        raise ValueError(f"Could not parse date: {fix_time}")
+                        
                 g_timestamp.labels(ap_name=ap_name, source="gnss", type="fix_time").set(dt.timestamp())
                 metric_count += 1
-            except (ImportError, ValueError, TypeError):
+            except (ValueError, TypeError):
                 pass
         
         # Try to convert last_fix_time to timestamp if available
         if last_fix_time:
             try:
-                from dateutil import parser
-                dt = parser.parse(last_fix_time)
+                if DATEUTIL_AVAILABLE:
+                    dt = dateutil_parser.parse(last_fix_time)
+                else:
+                    # Fallback to standard datetime parsing with common formats
+                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S"]:
+                        try:
+                            dt = datetime.strptime(last_fix_time, fmt)
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        raise ValueError(f"Could not parse date: {last_fix_time}")
+                        
                 g_timestamp.labels(ap_name=ap_name, source="gnss", type="last_fix_time").set(dt.timestamp())
                 metric_count += 1
-            except (ImportError, ValueError, TypeError):
+            except (ValueError, TypeError):
                 pass
     
     # Last location derivation time if available
@@ -1218,15 +1252,26 @@ def _create_timestamp_metrics(registry: Any, data: Dict[str, Any], ap_name: str)
         
         if derivation_time:
             try:
-                from dateutil import parser
-                dt = parser.parse(derivation_time)
+                if DATEUTIL_AVAILABLE:
+                    dt = dateutil_parser.parse(derivation_time)
+                else:
+                    # Fallback to standard datetime parsing with common formats
+                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S"]:
+                        try:
+                            dt = datetime.strptime(derivation_time, fmt)
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        raise ValueError(f"Could not parse date: {derivation_time}")
+                        
                 g_timestamp.labels(
                     ap_name=ap_name, 
                     source="last_location", 
                     type=f"derivation_{derivation_type}"
                 ).set(dt.timestamp())
                 metric_count += 1
-            except (ImportError, ValueError, TypeError):
+            except (ValueError, TypeError):
                 pass
     
     # Add show_clock time from main data
@@ -1235,11 +1280,22 @@ def _create_timestamp_metrics(registry: Any, data: Dict[str, Any], ap_name: str)
         clock_time = main_data.get("show_clock_time")
         if clock_time:
             try:
-                from dateutil import parser
-                dt = parser.parse(clock_time)
+                if DATEUTIL_AVAILABLE:
+                    dt = dateutil_parser.parse(clock_time)
+                else:
+                    # Fallback to standard datetime parsing with common formats
+                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S"]:
+                        try:
+                            dt = datetime.strptime(clock_time, fmt)
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        raise ValueError(f"Could not parse date: {clock_time}")
+                        
                 g_timestamp.labels(ap_name=ap_name, source="ap", type="current_time").set(dt.timestamp())
                 metric_count += 1
-            except (ImportError, ValueError, TypeError):
+            except (ValueError, TypeError):
                 pass
     
     return metric_count

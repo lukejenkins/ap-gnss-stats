@@ -16,6 +16,7 @@ Tools for parsing and analyzing GNSS (Global Navigation Satellite System) statis
   - [X] Add support for multiple SSH connections at once
 - [X] Add CSV export functionality with comprehensive data flattening
 - [X] ✅ **Bug Fix:** Resolved issue where APs marked successful lacked valid parsed data
+- [X] ✅ **Bug Fix:** Fixed Netmiko hostname truncation issue (see [Known Issues](docs/KNOWN_ISSUES.md))
 - [ ] Add support for pushing the parsed data to Prometheus
 - [ ] Add support for pushing the parsed data to InfluxDB
 - [ ] Add example visualizations using Grafana

@@ -367,7 +367,8 @@ def run_ap_commands(
     output_dir: str = DEFAULT_OUTPUT_DIR,
     include_raw: bool = False,
     prometheus_config: Optional[Dict[str, Any]] = None,
-    csv_config: Optional[Dict[str, Any]] = None
+    csv_config: Optional[Dict[str, Any]] = None,
+    ap_address: str = ""  # Add original AP address parameter
 ) -> Dict[str, Any]:
     """
     Run commands on the AP and parse the output.
@@ -379,6 +380,7 @@ def run_ap_commands(
         include_raw: Whether to include raw data in the output
         prometheus_config: Prometheus export configuration, if enabled
         csv_config: CSV export configuration, if enabled
+        ap_address: Original AP address, used to handle hostname truncation
         
     Returns:
         Dictionary with command execution results
@@ -430,7 +432,43 @@ def run_ap_commands(
     
     # Create a timestamp and hostname for the output filename
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    hostname = connection.base_prompt.replace(" ", "_")
+    
+    # Get hostname from the connection's base_prompt, but handle potential truncation
+    base_hostname = connection.base_prompt.replace(" ", "_")
+    
+    # NETMIKO TRUNCATION ISSUE:
+    # Netmiko has a known behavior where the base_prompt property might truncate hostnames
+    # under certain conditions. This is especially common with hostnames containing hyphens
+    # where the final segment is just one or two characters. For example:
+    # "ogxwsc-outdoor-ap1" might be truncated to "ogxwsc-outdoor-a"
+    # This truncation affects:
+    # 1. Output filenames
+    # 2. The main_ap_name field in the parsed data
+    #
+    # The detection pattern looks for:
+    # - Hostname containing a hyphen
+    # - Last segment after hyphen is just 1 or 2 characters
+    # - Original AP address is available for cross-checking
+    if ap_address and '-' in base_hostname and len(base_hostname.split('-')[-1]) <= 2:
+        # Extract hostname part from the FQDN (e.g., "ogxwsc-outdoor-ap1" from "ogxwsc-outdoor-ap1.mgmt.weber.edu")
+        original_hostname = ap_address.split('.')[0]
+        
+        # Check if the original hostname is longer and starts with the base_hostname (minus the last char)
+        # This provides stronger validation that we're dealing with a truncation
+        if len(original_hostname) > len(base_hostname) and original_hostname.startswith(base_hostname[:-1]):
+            hostname = original_hostname
+            if logger:
+                logger.info(f"Detected truncated hostname. Original base_prompt: '{base_hostname}' (length: {len(base_hostname)})")
+                logger.info(f"Using original hostname from AP address: '{hostname}' (length: {len(hostname)})")
+        else:
+            hostname = base_hostname
+            if logger:
+                logger.info(f"Hostname contained hyphen with short final segment but didn't match truncation pattern.")
+                logger.info(f"Using original base_prompt: '{hostname}' (length: {len(hostname)})")
+    else:
+        hostname = base_hostname
+        if logger:
+            logger.info(f"Using hostname from base_prompt: '{hostname}' (length: {len(hostname)})")
     
     # Parse the collected output
     if logger:
@@ -457,7 +495,7 @@ def run_ap_commands(
     try:
         # Use the GnssInfoParser to parse the data
         parser = GnssInfoParser()
-        parsed_data = parser.parse(full_output)
+        parsed_data = parser.parse(full_output, ap_address)
         
         # Add metadata
         parsed_data["metadata"] = {
@@ -705,7 +743,8 @@ def process_single_ap(
             output_dir=output_dir,
             include_raw=include_raw,
             prometheus_config=prometheus_config,
-            csv_config=csv_config
+            csv_config=csv_config,
+            ap_address=ap_address  # Pass the original AP address
         )
         
         # Safely disconnect

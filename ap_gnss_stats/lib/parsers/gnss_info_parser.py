@@ -24,11 +24,12 @@ class GnssInfoParser(BaseParser):
         super().__init__()
         self.version = "1.3.0"
     
-    def parse(self, content: str) -> Dict[str, Any]:
+    def parse(self, content: str, ap_address: str = "") -> Dict[str, Any]:
         """Parse GNSS data from content.
         
         Args:
             content: Raw content from AP logs
+            ap_address: Optional original AP address to help with name reconstruction
             
         Returns:
             Dictionary with parsed GNSS data
@@ -39,7 +40,7 @@ class GnssInfoParser(BaseParser):
         }
         
         # Extract main and GNSS state metrics
-        main_metrics, gnss_state_metrics = self._extract_gnss_metrics(content)
+        main_metrics, gnss_state_metrics = self._extract_gnss_metrics(content, ap_address)
         
         # Add sections to the result
         result["main"] = main_metrics
@@ -74,11 +75,12 @@ class GnssInfoParser(BaseParser):
         
         return ordered_result
     
-    def _extract_gnss_metrics(self, content: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def _extract_gnss_metrics(self, content: str, ap_address: str = "") -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Extract main and GNSS state metrics from the content.
         
         Args:
             content: Raw file content
+            ap_address: Optional original AP address to help with name reconstruction
             
         Returns:
             Tuple of (main metrics dictionary, gnss state metrics dictionary)
@@ -89,6 +91,29 @@ class GnssInfoParser(BaseParser):
         
         # Extract AP name and add it to the main metrics
         ap_name = self._extract_ap_name(content)
+        
+        # NETMIKO TRUNCATION ISSUE HANDLING:
+        # Netmiko sometimes truncates hostnames, especially those with hyphens where the final segment
+        # is a single character or short string. For example:
+        # "ogxwsc-outdoor-ap1" -> "ogxwsc-outdoor-a"
+        # 
+        # This logic checks for truncation patterns and attempts to reconstruct the full hostname
+        # using the original AP address provided by the caller (typically from run_ap_commands).
+        if ap_name and ap_address and '-' in ap_name:
+            # Check for truncation pattern: hostname with a hyphen and last segment is 1 or 2 characters
+            last_segment = ap_name.split('-')[-1]
+            if len(last_segment) <= 2:
+                # Extract hostname part from the FQDN (e.g., "ogxwsc-outdoor-ap1" from "ogxwsc-outdoor-ap1.mgmt.weber.edu")
+                original_hostname = ap_address.split('.')[0]
+                
+                # Several checks to validate the reconstruction:
+                # 1. Original hostname should be longer than the truncated one
+                # 2. Original hostname should start with most of the truncated name (minus the last 1-2 chars)
+                if (len(original_hostname) > len(ap_name) and 
+                    original_hostname.startswith(ap_name[:-len(last_segment)])):
+                    # Use the original hostname instead of the truncated one
+                    ap_name = original_hostname
+        
         if ap_name:
             main_metrics["main_ap_name"] = ap_name
         
@@ -205,12 +230,45 @@ class GnssInfoParser(BaseParser):
         Returns:
             String containing the AP name, or empty string if not found
         """
+        # Cisco AP prompt is typically: <ap_name>#show ...
+        # AP names can be up to 32 characters (Cisco limit)
+        # First try to match entire prompt lines, then apply length limit
         pattern = r'(?:^|\n)([^\n#]+)#show '
         match = re.search(pattern, content, re.IGNORECASE)
-        
         if match:
-            return match.group(1).strip()
-        
+            ap_name = match.group(1).strip()
+            
+            # Check for potential Netmiko truncation
+            # Netmiko can truncate AP names in different patterns:
+            # Example: "ogxwsc-outdoor-a" is truncated from "ogxwsc-outdoor-ap1"
+            # Example: "server-c" might be truncated from "server-core"
+            # 
+            # This primarily happens with hostnames containing hyphens where the last segment
+            # is only 1-2 characters long after truncation.
+            truncation_suspected = False
+            
+            # Detect potential truncation: hyphen followed by 1-2 chars at the end
+            if '-' in ap_name:
+                last_segment = ap_name.split('-')[-1] 
+                if len(last_segment) <= 2:
+                    truncation_suspected = True
+            
+            if truncation_suspected:
+                # Look for the full hostname in metadata if available
+                # This is only relevant when called during parsing in run_ap_commands
+                # and won't help with direct parsing, but it's better than nothing
+                original_hostname_pattern = r'hostname: ([^\s,]+)'
+                hostname_match = re.search(original_hostname_pattern, content, re.IGNORECASE)
+                if hostname_match:
+                    full_hostname = hostname_match.group(1).strip()
+                    # Verify the potential match makes sense
+                    if len(full_hostname) > len(ap_name) and full_hostname.startswith(ap_name[:-len(last_segment)]):
+                        ap_name = full_hostname
+                        
+            # Defensive: enforce max 32 chars, but do not truncate shorter names
+            if len(ap_name) > 32:
+                ap_name = ap_name[:32]
+            return ap_name
         return ""
 
     def _extract_show_clock_time(self, content: str) -> str:
