@@ -211,24 +211,28 @@ def setup_logging(ap_name: str, log_dir: str = DEFAULT_LOG_DIR) -> Tuple[logging
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     
     # Sanitize AP name for filename (replace invalid chars)
-    safe_ap_name = re.sub(r'[^\w\-\.]', '_', ap_name)
+    safe_ap_name = re.sub(r'[^\\w\\-\\.]', '_', ap_name)
     
     # Create log filename
     log_file = os.path.join(log_dir, f"{timestamp}-{safe_ap_name}{DEFAULT_SESSION_LOG_EXTENSION}")
     
     # Configure logger
     logger = logging.getLogger(f"ssh_session_{safe_ap_name}")
-    logger.setLevel(logging.DEBUG)
     
-    # Set up file handler with timestamp prefix
-    file_handler = TimestampedFileHandler(log_file)
-    formatter = logging.Formatter('%(message)s')
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    # Only add handlers if none exist for this logger, to prevent duplication.
+    if not logger.handlers:
+        logger.setLevel(logging.DEBUG)
+        # Set up file handler with timestamp prefix
+        file_handler = TimestampedFileHandler(log_file)
+        formatter = logging.Formatter('%(message)s')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        # Optional: Prevent propagation to avoid duplicate logs if root logger is configured
+        # logger.propagate = False
     
-    # Log basic session information
+    # Log basic session information (will use existing handlers if logger was already set up)
     logger.info(f"Starting SSH session to {ap_name}")
-    logger.info(f"Session log started at {timestamp}")
+    logger.info(f"Session log started at {timestamp} (or re-using existing log setup for this AP name if called multiple times)") # Clarified log message
     
     return logger, log_file
 
@@ -806,27 +810,31 @@ def read_ap_list_from_file(file_path: str) -> List[str]:
     Read a list of AP addresses from a file.
     
     Args:
-        file_path: Path to file containing AP addresses
+        file_path: Path to file containing AP addresses (can include ~)
         
     Returns:
-        List of AP addresses
+        List of AP addresses, or empty list on error.
     """
-    ap_list = []
+    ap_list_internal = []
+    # Ensure the path is absolute and user-expanded before trying to open
+    actual_path = os.path.abspath(os.path.expanduser(file_path))
     
+    if not os.path.isfile(actual_path):
+        print(f"Error in read_ap_list_from_file: File not found at resolved path '{actual_path}' (original input: '{file_path}').")
+        return []
+
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(actual_path, 'r', encoding='utf-8') as f:
             for line in f:
-                # Strip whitespace and ignore empty lines or comments
                 line = line.strip()
                 if line and not line.startswith('#'):
-                    ap_list.append(line)# Strip whitespace and ignore empty lines or comments
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    ap_list.append(line)
-        
-        return ap_list
+                    ap_list_internal.append(line)
+        if not ap_list_internal:
+            # This is more of a warning than an error if the file is empty or only has comments
+            print(f"Info in read_ap_list_from_file: No APs loaded from '{actual_path}'. File might be empty or only contain comments/empty lines.")
+        return ap_list_internal
     except Exception as e:
-        print(f"Error reading AP list from {file_path}: {str(e)}")
+        print(f"Error reading AP list from {actual_path}: {str(e)}")
         return []
 
 
@@ -1000,17 +1008,47 @@ def main():
     if args.ap_address:
         ap_list = [args.ap_address]
     elif args.file:
-        # Check if the file is an environment variable
-        file_path = os.getenv("AP_LIST_FILE") if not os.path.isfile(args.file) else args.file
-        if not file_path:
-            print(f"Error: Could not find AP list file at {args.file}")
-            print("And AP_LIST_FILE environment variable is not set")
+        raw_file_arg = args.file
+        expanded_file_arg_path = os.path.expanduser(raw_file_arg)
+        
+        chosen_file_path = None
+
+        if os.path.isfile(expanded_file_arg_path):
+            chosen_file_path = expanded_file_arg_path
+        else:
+            print(f"Warning: AP list file from --file argument ('{raw_file_arg}' expanded to '{expanded_file_arg_path}') not found or is not a regular file.")
+            env_file_path_str = os.getenv("AP_LIST_FILE")
+            if env_file_path_str:
+                expanded_env_file_path = os.path.expanduser(env_file_path_str)
+                if os.path.isfile(expanded_env_file_path):
+                    chosen_file_path = expanded_env_file_path
+                    print(f"Using AP list file from AP_LIST_FILE environment variable: {chosen_file_path}")
+                else:
+                    print(f"Error: AP_LIST_FILE ('{env_file_path_str}' expanded to '{expanded_env_file_path}') also does not point to a valid file.")
+                    return 1
+            else:
+                print(f"Error: AP_LIST_FILE environment variable is not set, and --file argument ('{raw_file_arg}') was invalid.")
+                return 1
+        
+        if not chosen_file_path:
+             print("Critical Error: Could not determine a valid AP list file path. This should not happen.")
+             return 1
+
+        ap_list_raw = read_ap_list_from_file(chosen_file_path)
+        if not ap_list_raw:
+            print(f"Exiting: No APs to process from {chosen_file_path}.")
             return 1
         
-        ap_list = read_ap_list_from_file(file_path)
-        if not ap_list:
-            print(f"No valid AP addresses found in {file_path}")
-            return 1
+        # De-duplicate the list while preserving order
+        ap_list = list(OrderedDict.fromkeys(ap_list_raw))
+        
+        if len(ap_list) < len(ap_list_raw):
+            print(f"Info: Duplicate AP entries found in {chosen_file_path}. Processing {len(ap_list)} unique AP(s).")
+            print(f"      (Original count: {len(ap_list_raw)}, Unique count: {len(ap_list)})")
+
+    if not ap_list:
+        print("Error: No APs to process. Please specify an AP with -a or a file with -f.")
+        return 1
     
     print(f"Will process {len(ap_list)} access point(s)")
     
