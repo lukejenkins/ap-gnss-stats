@@ -5,7 +5,7 @@ This module provides base classes and utilities for the parser implementations.
 """
 
 import re
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Callable
 from datetime import datetime
 from collections import OrderedDict
 
@@ -28,7 +28,7 @@ class BaseParser:
     @staticmethod
     def extract_with_pattern(content: str, pattern: str, group: int = 1, 
                            flags: int = re.IGNORECASE, 
-                           conversion: Optional[callable] = None,
+                           conversion: Optional[Callable[[str], Any]] = None,
                            default: Any = None) -> Any:
         """Extract value from content using regex pattern.
         

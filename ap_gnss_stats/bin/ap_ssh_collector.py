@@ -93,6 +93,7 @@ DEFAULT_PROMETHEUS_URL = None
 DEFAULT_PROMETHEUS_USERNAME = None
 DEFAULT_PROMETHEUS_PASSWORD = None
 DEFAULT_PROMETHEUS_DEBUG = False
+DEFAULT_ENV_DEBUG = False # New global for general .env debug
 
 # CSV export defaults
 DEFAULT_CSV_ENABLED = False
@@ -102,14 +103,18 @@ DEFAULT_CSV_APPEND_MODE = False
 # Load environment variables from .env file
 def load_env_config():
     """Load configuration from environment variables or .env file."""
-    global DEFAULT_PROMETHEUS_URL, DEFAULT_PROMETHEUS_USERNAME, DEFAULT_PROMETHEUS_PASSWORD
+    global DEFAULT_PROMETHEUS_ENABLED, DEFAULT_PROMETHEUS_URL, DEFAULT_PROMETHEUS_JOB
+    global DEFAULT_PROMETHEUS_USERNAME, DEFAULT_PROMETHEUS_PASSWORD, DEFAULT_PROMETHEUS_TIMEOUT, DEFAULT_PROMETHEUS_DEBUG
     global DEFAULT_CSV_ENABLED, DEFAULT_CSV_OUTPUT_FILE, DEFAULT_CSV_APPEND_MODE
+    global DEFAULT_ENV_DEBUG # Ensure new global is included
+    
+    print("\n### DEBUG: load_env_config called ###\n")  # Added debug print
     
     # Try to load from .env file first
     env_file = find_dotenv_file()
     if env_file:
         load_dotenv(env_file)
-        print(f"Loaded environment configuration from: {env_file}")
+        # Debug print about which file was loaded will be handled in main()
     else:
         # Try default .env locations
         load_dotenv()  # Tries .env in current directory
@@ -141,14 +146,23 @@ def load_env_config():
     
     
     # Update Prometheus configuration from environment variables
+    DEFAULT_PROMETHEUS_ENABLED = get_env_or_default("AP_PROMETHEUS_ENABLED", DEFAULT_PROMETHEUS_ENABLED, str_to_bool)
     DEFAULT_PROMETHEUS_URL = get_env_or_default("AP_PROMETHEUS_URL", DEFAULT_PROMETHEUS_URL)
+    DEFAULT_PROMETHEUS_JOB = get_env_or_default("AP_PROMETHEUS_JOB", DEFAULT_PROMETHEUS_JOB)
     DEFAULT_PROMETHEUS_USERNAME = get_env_or_default("AP_PROMETHEUS_USERNAME", DEFAULT_PROMETHEUS_USERNAME)
     DEFAULT_PROMETHEUS_PASSWORD = get_env_or_default("AP_PROMETHEUS_PASSWORD", DEFAULT_PROMETHEUS_PASSWORD)
-    
+    DEFAULT_PROMETHEUS_TIMEOUT = get_env_or_default("AP_PROMETHEUS_TIMEOUT", DEFAULT_PROMETHEUS_TIMEOUT, int)
+    DEFAULT_PROMETHEUS_DEBUG = get_env_or_default("AP_PROMETHEUS_DEBUG", DEFAULT_PROMETHEUS_DEBUG, str_to_bool)
+
     # Update CSV configuration from environment variables
     DEFAULT_CSV_ENABLED = get_env_or_default("AP_CSV_ENABLED", DEFAULT_CSV_ENABLED, str_to_bool)
     DEFAULT_CSV_OUTPUT_FILE = get_env_or_default("AP_CSV_OUTPUT_FILE", DEFAULT_CSV_OUTPUT_FILE)
     DEFAULT_CSV_APPEND_MODE = get_env_or_default("AP_CSV_APPEND_MODE", DEFAULT_CSV_APPEND_MODE, str_to_bool)
+
+    # Update general environment debug flag from environment variable
+    DEFAULT_ENV_DEBUG = get_env_or_default("AP_ENV_DEBUG", DEFAULT_ENV_DEBUG, str_to_bool)
+
+    # Removed the debug printing block from here; it will be handled in main().
 
 def find_dotenv_file() -> Optional[str]:
     """
@@ -876,16 +890,17 @@ def get_csv_config() -> Dict[str, Any]:
 
 def main():
     """Main function to connect to APs and collect data."""
-    # Load environment variables from .env file
+    # Load environment variables from .env file. This populates the DEFAULT_* globals.
     load_env_config()
-    
+
     parser = argparse.ArgumentParser(description='Connect to Cisco APs via SSH and collect GNSS data')
-    
+
     # Create group for AP selection (either single AP or file with list)
-    ap_group = parser.add_mutually_exclusive_group(required=True)
+    # Make the group not strictly required by argparse; we'll check manually later.
+    ap_group = parser.add_mutually_exclusive_group()  # Removed required=True
     ap_group.add_argument('-a', '--ap-address', help='Hostname or IP address of the AP')
-    ap_group.add_argument('-f', '--file', help='File containing a list of AP addresses')
-    
+    ap_group.add_argument('-f', '--file', help='File containing a list of AP addresses (overrides AP_LIST_FILE env var if used)')
+
     # Authentication parameters
     parser.add_argument('-u', '--username', help='SSH username')
     parser.add_argument('-p', '--password', help='SSH password (will prompt if not provided)')
@@ -900,6 +915,10 @@ def main():
     parser.add_argument('-c', '--concurrent', type=int, default=DEFAULT_CONCURRENT_CONNECTIONS, 
                        help=f'Number of concurrent AP connections (default: {DEFAULT_CONCURRENT_CONNECTIONS})')
     
+    # New argument for general .env debug
+    parser.add_argument('--debug-env', action='store_true', default=False, 
+                       help='Enable verbose debugging for .env file loading and initial settings from environment.')
+
     # Prometheus parameters
     prometheus_group = parser.add_argument_group('Prometheus export options')
     prometheus_group.add_argument('--prometheus', action='store_true', default=DEFAULT_PROMETHEUS_ENABLED,
@@ -927,7 +946,53 @@ def main():
                           help='Append to existing CSV file instead of overwriting')
     
     args = parser.parse_args()
-    
+
+    # Determine effective debug level for .env loading
+    # DEFAULT_ENV_DEBUG is set by load_env_config() from AP_ENV_DEBUG (or remains False).
+    # args.debug_env is True if --debug-env is used on CLI, False otherwise.
+    effective_env_debug = DEFAULT_ENV_DEBUG or args.debug_env
+
+    if effective_env_debug:
+        print("\\n### Environment Settings Debug Info ###")
+        
+        env_file_path = find_dotenv_file()
+        if env_file_path:
+            print(f"  Note: .env file found at '{env_file_path}' was consulted during loading.")
+        else:
+            print("  Note: No .env file was found by find_dotenv_file(); settings are from environment variables or script defaults.")
+
+        # This dictionary maps the environment variable names to the global DEFAULT_* variables
+        # that store their values after being processed by load_env_config().
+        env_vars_to_report = {
+            "AP_PROMETHEUS_ENABLED": DEFAULT_PROMETHEUS_ENABLED,
+            "AP_PROMETHEUS_URL": DEFAULT_PROMETHEUS_URL,
+            "AP_PROMETHEUS_JOB": DEFAULT_PROMETHEUS_JOB,
+            "AP_PROMETHEUS_USERNAME": DEFAULT_PROMETHEUS_USERNAME,
+            "AP_PROMETHEUS_PASSWORD": DEFAULT_PROMETHEUS_PASSWORD,
+            "AP_PROMETHEUS_TIMEOUT": DEFAULT_PROMETHEUS_TIMEOUT,
+            "AP_PROMETHEUS_DEBUG": DEFAULT_PROMETHEUS_DEBUG, # For Prometheus-specific debug
+            "AP_CSV_ENABLED": DEFAULT_CSV_ENABLED,
+            "AP_CSV_OUTPUT_FILE": DEFAULT_CSV_OUTPUT_FILE,
+            "AP_CSV_APPEND_MODE": DEFAULT_CSV_APPEND_MODE,
+            "AP_ENV_DEBUG": DEFAULT_ENV_DEBUG # The general .env debug flag itself
+            # Add other DEFAULT_* variables here if they are loaded from .env and relevant to report
+        }
+        
+        print("  Current values for key configurations (after .env load, before CLI overrides for execution):")
+        any_config_shown = False
+        for config_name, current_value_from_global in env_vars_to_report.items():
+            original_env_value_str = os.getenv(config_name)
+            type_name = type(current_value_from_global).__name__
+            if original_env_value_str is not None:
+                print(f"  - {config_name}: {current_value_from_global} (type: {type_name}) (from .env/environment: '{original_env_value_str}')")
+            else:
+                print(f"  - {config_name}: {current_value_from_global} (type: {type_name}) (not in .env/environment, using script default or logic)")
+            any_config_shown = True
+
+        if not any_config_shown:
+            print("  No key configurations to report from the predefined list.")
+        print("###########################################################\\n")
+
     # Get credentials (from args, environment, or prompt)
     env_creds = get_credentials()
     
@@ -949,10 +1014,10 @@ def main():
     
     # Get Prometheus configuration
     prometheus_config = get_prometheus_config()
-    
+
     # Get CSV configuration
     csv_config = get_csv_config()
-    
+
     # Override with command line arguments if provided
     prometheus_config["enabled"] = args.prometheus
     if args.prometheus_url:
@@ -963,10 +1028,10 @@ def main():
         prometheus_config["username"] = args.prometheus_username
     if args.prometheus_password:
         prometheus_config["password"] = args.prometheus_password
-    if args.prometheus_timeout:
+    if args.prometheus_timeout: # This was missing in the original, ensuring it's here.
         prometheus_config["timeout"] = args.prometheus_timeout
-    prometheus_config["debug"] = args.prometheus_debug
-    
+    prometheus_config["debug"] = args.prometheus_debug # This correctly sets the final debug state for Prometheus operations
+
     # Override CSV configuration with command line arguments if provided
     csv_config["enabled"] = args.csv
     if args.csv_output:
@@ -988,8 +1053,8 @@ def main():
     # Display Prometheus status
     if prometheus_config["enabled"]:
         print(f"Prometheus export enabled, using pushgateway: {prometheus_config['url']}")
-        if prometheus_config["debug"]:
-            print("Prometheus debug mode enabled - detailed logging will be available")
+        if prometheus_config["debug"]: # This uses the final, potentially CLI-overridden, debug value
+            print("Prometheus debug mode enabled - detailed logging for Prometheus operations will be available")
         
         # Verify required dependencies
         if not is_prometheus_available():
@@ -1003,54 +1068,71 @@ def main():
         append_mode_text = "append" if csv_config["append_mode"] else "overwrite"
         print(f"CSV mode: {append_mode_text}")
     
-    # Get list of APs to process
-    ap_list = []
+    # Determine the list of APs to process
+    ap_list: List[str] = []
+    ap_source_description = ""
+    raw_ap_list_for_dedupe_check: Optional[List[str]] = None 
+    source_file_for_dedupe_check: Optional[str] = None
+
     if args.ap_address:
         ap_list = [args.ap_address]
-    elif args.file:
-        raw_file_arg = args.file
-        expanded_file_arg_path = os.path.expanduser(raw_file_arg)
-        
-        chosen_file_path = None
-
-        if os.path.isfile(expanded_file_arg_path):
-            chosen_file_path = expanded_file_arg_path
-        else:
-            print(f"Warning: AP list file from --file argument ('{raw_file_arg}' expanded to '{expanded_file_arg_path}') not found or is not a regular file.")
-            env_file_path_str = os.getenv("AP_LIST_FILE")
-            if env_file_path_str:
-                expanded_env_file_path = os.path.expanduser(env_file_path_str)
-                if os.path.isfile(expanded_env_file_path):
-                    chosen_file_path = expanded_env_file_path
-                    print(f"Using AP list file from AP_LIST_FILE environment variable: {chosen_file_path}")
-                else:
-                    print(f"Error: AP_LIST_FILE ('{env_file_path_str}' expanded to '{expanded_env_file_path}') also does not point to a valid file.")
-                    return 1
+        ap_source_description = f"AP address from command line: \'{args.ap_address}\'"
+    elif args.file:  # -f/--file was explicitly used
+        print(f"Info: Using AP list file from --file argument: \'{args.file}\'")
+        expanded_file_path = os.path.expanduser(args.file)
+        if os.path.isfile(expanded_file_path):
+            ap_list_raw_from_file = read_ap_list_from_file(expanded_file_path)
+            if ap_list_raw_from_file:
+                raw_ap_list_for_dedupe_check = list(ap_list_raw_from_file) # Keep original for dedupe message
+                source_file_for_dedupe_check = expanded_file_path
+                ap_list = list(OrderedDict.fromkeys(ap_list_raw_from_file))
+                ap_source_description = f"AP list from file (command line): \'{expanded_file_path}\'"
+                if not ap_list: 
+                     print(f"Warning: AP list file from --file argument (\'{args.file}\') resulted in an empty list after processing (e.g. only duplicates, or empty lines).")
             else:
-                print(f"Error: AP_LIST_FILE environment variable is not set, and --file argument ('{raw_file_arg}') was invalid.")
-                return 1
-        
-        if not chosen_file_path:
-             print("Critical Error: Could not determine a valid AP list file path. This should not happen.")
-             return 1
+                # File was specified by -f but was empty or only comments
+                print(f"Warning: AP list file from --file argument (\'{args.file}\') was empty or only contained comments. Check file content.")
+        else:
+            # File specified by -f not found
+            print(f"Error: AP list file specified with --file argument (\'{args.file}\' expanded to \'{expanded_file_path}\') not found or is not a regular file.")
+            # If -f is used, it must be a valid file; no fallback to AP_LIST_FILE here.
+            # The script will exit later if ap_list remains empty.
+    else: # Neither -a nor -f was used on the command line, try AP_LIST_FILE from environment
+        env_ap_list_file = os.getenv("AP_LIST_FILE")
+        if env_ap_list_file:
+            print(f"Info: No AP address or file specified on command line. Checking AP_LIST_FILE environment variable: \'{env_ap_list_file}\'")
+            expanded_env_file_path = os.path.expanduser(env_ap_list_file)
+            if os.path.isfile(expanded_env_file_path):
+                ap_list_raw_from_env = read_ap_list_from_file(expanded_env_file_path)
+                if ap_list_raw_from_env:
+                    raw_ap_list_for_dedupe_check = list(ap_list_raw_from_env)
+                    source_file_for_dedupe_check = expanded_env_file_path
+                    ap_list = list(OrderedDict.fromkeys(ap_list_raw_from_env))
+                    ap_source_description = f"AP list from AP_LIST_FILE (environment variable): \'{expanded_env_file_path}\'"
+                    if not ap_list: # If deduplication resulted in an empty list
+                        print(f"Warning: AP list file from AP_LIST_FILE (\'{expanded_env_file_path}\') resulted in an empty list after processing.")
+                else:
+                    # AP_LIST_FILE was found but empty or only comments
+                    print(f"Warning: AP list file from AP_LIST_FILE environment variable (\'{expanded_env_file_path}\') is empty or only contained comments.")
+            else:
+                # AP_LIST_FILE points to a non-existent file
+                print(f"Error: AP list file from AP_LIST_FILE environment variable (\'{expanded_env_file_path}\') not found or is not a regular file.")
+        # If env_ap_list_file is None (AP_LIST_FILE not set), ap_list remains empty, handled by the check below.
 
-        ap_list_raw = read_ap_list_from_file(chosen_file_path)
-        if not ap_list_raw:
-            print(f"Exiting: No APs to process from {chosen_file_path}.")
-            return 1
-        
-        # De-duplicate the list while preserving order
-        ap_list = list(OrderedDict.fromkeys(ap_list_raw))
-        
-        if len(ap_list) < len(ap_list_raw):
-            print(f"Info: Duplicate AP entries found in {chosen_file_path}. Processing {len(ap_list)} unique AP(s).")
-            print(f"      (Original count: {len(ap_list_raw)}, Unique count: {len(ap_list)})")
+    # Check for duplicates if list came from a file and print info
+    if raw_ap_list_for_dedupe_check is not None and source_file_for_dedupe_check is not None:
+        if len(ap_list) < len(raw_ap_list_for_dedupe_check):
+            print(f"Info: Duplicate AP entries found in \'{source_file_for_dedupe_check}\'. Processing {len(ap_list)} unique AP(s).")
+            print(f"      (Original count: {len(raw_ap_list_for_dedupe_check)}, Unique count: {len(ap_list)})")
 
     if not ap_list:
-        print("Error: No APs to process. Please specify an AP with -a or a file with -f.")
-        return 1
+        parser.error( # parser.error will print usage and exit
+            "No APs to process. Please provide an AP address using -a/--ap-address, "
+            "a valid AP list file using -f/--file, or set the AP_LIST_FILE environment variable "
+            "to point to a valid file that contains AP addresses."
+        )
     
-    print(f"Will process {len(ap_list)} access point(s)")
+    print(f"Will process {len(ap_list)} access point(s). Source: {ap_source_description}")
     
     # Process APs (single-threaded or multi-threaded)
     results = []

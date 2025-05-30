@@ -257,7 +257,7 @@ def process_file(file_path: str, args: argparse.Namespace) -> Dict[str, Any]:
             del parsed_data["metadata"]
         
         # Create an OrderedDict with metadata first, then add the rest of the data
-        ordered_data = OrderedDict([("metadata", metadata)])
+        ordered_data: OrderedDict[str, Any] = OrderedDict([("metadata", metadata)])
         
         # Add all other keys from parsed_data
         for key, value in parsed_data.items():
@@ -355,7 +355,7 @@ async def process_file_async(file_path: str, args: argparse.Namespace) -> Dict[s
             del parsed_data["metadata"]
         
         # Create an OrderedDict with metadata first, then add the rest of the data
-        ordered_data = OrderedDict([("metadata", metadata)])
+        ordered_data: OrderedDict[str, Any] = OrderedDict([("metadata", metadata)])
         
         # Add all other keys from parsed_data
         for key, value in parsed_data.items():
@@ -457,7 +457,9 @@ def process_files_parallel(file_paths: Set[str], args: argparse.Namespace) -> Li
         List of results for each file
     """
     results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(32, os.cpu_count() + 4)) as executor:
+    cpu_count = os.cpu_count()
+    max_workers = min(32, (cpu_count if cpu_count is not None else 1) + 4)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_file = {
             executor.submit(process_file, file_path, args): file_path 
             for file_path in file_paths
