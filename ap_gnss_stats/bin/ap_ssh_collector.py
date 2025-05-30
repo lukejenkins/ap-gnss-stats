@@ -225,7 +225,13 @@ def setup_logging(ap_name: str, log_dir: str = DEFAULT_LOG_DIR) -> Tuple[logging
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     
     # Sanitize AP name for filename (replace invalid chars)
-    safe_ap_name = re.sub(r'[^\\w\\-\\.]', '_', ap_name)
+    # The original regex r\'[^\\\\w\\\\-\\\\.]\' incorrectly escaped metacharacters in a raw string.
+    # The corrected regex r'[^\w\-\.]' properly defines characters to keep:
+    # \\w: word characters (alphanumeric + underscore)
+    # \\-: literal hyphen
+    # \\.: literal period
+    # [^...]: replace any character NOT in this set with an underscore.
+    safe_ap_name = re.sub(r'[^\w\-\.]', '_', ap_name)
     
     # Create log filename
     log_file = os.path.join(log_dir, f"{timestamp}-{safe_ap_name}{DEFAULT_SESSION_LOG_EXTENSION}")
