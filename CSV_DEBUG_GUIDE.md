@@ -1,11 +1,13 @@
 # CSV Export Debugging Guide
 
 ## Problem
+
 You're seeing "CSV export successful" messages, but the CSV file doesn't seem to exist or contain the expected data.
 
 ## Enhanced Debugging Features
 
 ### 1. Basic CSV Debug Information (Always Available)
+
 The SSH collector now shows enhanced verification information after every CSV export:
 
 ```bash
@@ -13,6 +15,7 @@ python -m ap_gnss_stats.bin.ap_ssh_collector -a your-ap.example.com -u username 
 ```
 
 This will show:
+
 - Absolute file path
 - File existence verification
 - File size
@@ -20,6 +23,7 @@ This will show:
 - Directory contents if file is missing
 
 ### 2. Verbose CSV Debug Mode
+
 For detailed debugging, use the `--csv-debug` flag:
 
 ```bash
@@ -27,6 +31,7 @@ python -m ap_gnss_stats.bin.ap_ssh_collector -a your-ap.example.com -u username 
 ```
 
 This provides:
+
 - Environment information (Python version, working directory, user, disk space)
 - Directory permissions checking
 - Step-by-step file creation process
@@ -34,6 +39,7 @@ This provides:
 - File verification with content samples
 
 ### 3. Standalone CSV Debug Tool
+
 Use the dedicated debug script to test CSV functionality:
 
 ```bash
@@ -50,41 +56,50 @@ python debug_csv_export.py -o /path/to/test.csv --append
 ## Common Issues and Solutions
 
 ### Issue 1: "File doesn't exist after export"
+
 **Symptoms:** CSV export reports success but file is missing
 
 **Debug steps:**
+
 1. Run with `--csv-debug` to see detailed path information
 2. Check if the output directory has write permissions
 3. Verify disk space availability
 4. Look for permission errors in the debug output
 
 ### Issue 2: "Permission denied"
+
 **Symptoms:** Export fails with permission errors
 
 **Solutions:**
+
 - Ensure the output directory exists and is writable
 - Try using a different output directory: `--csv-output ~/Documents/ap_data.csv`
 - Check that you have permission to create files in the target directory
 
 ### Issue 3: "File created but empty"
+
 **Symptoms:** CSV file exists but has no data
 
 **Debug steps:**
+
 1. Check the "Number of AP records to export" in debug output
 2. Verify that APs were successfully connected and parsed
 3. Look for parsing errors in the main output
 
 ### Issue 4: "Append mode not working"
+
 **Symptoms:** Data isn't being appended to existing files
 
 **Debug steps:**
+
 1. Use `--csv-debug` to see existing file analysis
 2. Check if the existing file has a proper CSV header
 3. Verify file permissions allow appending
 
 ## Example Debug Commands
 
-### Debug a specific AP with verbose output:
+### Debug a specific AP with verbose output
+
 ```bash
 python -m ap_gnss_stats.bin.ap_ssh_collector \
   -a your-ap.example.com \
@@ -94,12 +109,14 @@ python -m ap_gnss_stats.bin.ap_ssh_collector \
   --csv-debug
 ```
 
-### Test CSV export without connecting to APs:
+### Test CSV export without connecting to APs
+
 ```bash
 python debug_csv_export.py -o output/standalone_test.csv
 ```
 
-### Debug append mode:
+### Debug append mode
+
 ```bash
 # First export
 python debug_csv_export.py -o output/append_test.csv
@@ -123,6 +140,7 @@ The debug output includes several sections:
 If you're still experiencing issues after running the debug tools:
 
 1. Save the complete debug output to a file:
+
    ```bash
    python -m ap_gnss_stats.bin.ap_ssh_collector ... --csv-debug 2>&1 | tee debug_output.txt
    ```
@@ -135,7 +153,8 @@ If you're still experiencing issues after running the debug tools:
 
 ## Quick Fixes
 
-### Try these first:
+### Try these first
+
 1. Use an absolute path for output: `--csv-output /Users/username/ap_data.csv`
 2. Ensure the output directory exists: `mkdir -p output`
 3. Test with a simple filename in your home directory: `--csv-output ~/test.csv`
