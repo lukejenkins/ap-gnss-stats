@@ -23,6 +23,7 @@ python -m ap_gnss_stats.bin.ap_ssh_collector -a ap1.example.com -u admin --csv
 ```
 
 This will:
+
 - Export successful AP data to a timestamped CSV file (e.g., `ap_gnss_export_20250529-143022.csv`)
 - Overwrite any existing file with the same name
 - Include all parsed GNSS data in flattened column format
@@ -44,6 +45,7 @@ python -m ap_gnss_stats.bin.ap_ssh_collector -a ap2.example.com -u admin --csv -
 ```
 
 This will:
+
 - Add new AP data as additional rows to the existing CSV file
 - Preserve the existing column structure
 - Skip writing a new header row
@@ -190,25 +192,29 @@ echo "Site survey complete for $SITE_NAME: $CSV_FILE"
 ### Common Issues and Solutions
 
 1. **Permission Denied**
-   ```
+
+   ```plaintext
    Error: Permission denied writing to CSV file
    Solution: Check file permissions and directory write access
    ```
 
 2. **File Locked**
-   ```
+
+   ```plaintext
    Error: CSV file is locked by another process
    Solution: Close the file in Excel or other applications
    ```
 
 3. **No Successful Data**
-   ```
+
+   ```plaintext
    Warning: CSV export skipped - no successful AP data to export
    Solution: Check AP connectivity and authentication
    ```
 
 4. **Append Mode Column Mismatch**
-   ```
+
+   ```plaintext
    Warning: Could not read existing CSV header. Will overwrite file.
    Solution: Ensure existing CSV file has valid header row
    ```
@@ -252,6 +258,7 @@ Check the session log files in the `debug_logs/` directory for detailed error in
 ### Excel Analysis
 
 Open the CSV file in Microsoft Excel for:
+
 - Sorting and filtering AP data
 - Creating charts and graphs
 - Calculating statistics and averages

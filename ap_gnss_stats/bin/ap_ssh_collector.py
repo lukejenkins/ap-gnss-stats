@@ -888,7 +888,8 @@ def get_csv_config() -> Dict[str, Any]:
     csv_config = {
         "enabled": DEFAULT_CSV_ENABLED,
         "output_file": DEFAULT_CSV_OUTPUT_FILE,
-        "append_mode": DEFAULT_CSV_APPEND_MODE
+        "append_mode": DEFAULT_CSV_APPEND_MODE,
+        "debug": False  # Will be set from command line args
     }
     
     return csv_config
@@ -950,6 +951,8 @@ def main():
                           help='Output CSV file path (default: auto-generated with timestamp)')
     csv_group.add_argument('--csv-append', action='store_true', default=DEFAULT_CSV_APPEND_MODE,
                           help='Append to existing CSV file instead of overwriting')
+    csv_group.add_argument('--csv-debug', action='store_true', default=False,
+                          help='Enable verbose debugging for CSV export operations')
     
     args = parser.parse_args()
 
@@ -1043,6 +1046,7 @@ def main():
     if args.csv_output:
         csv_config["output_file"] = args.csv_output
     csv_config["append_mode"] = args.csv_append
+    csv_config["debug"] = args.csv_debug  # Add debug flag from command line
     
     # If CSV is enabled, set up output file if not specified
     if csv_config["enabled"] and not csv_config["output_file"]:
@@ -1318,27 +1322,112 @@ def main():
         
         if csv_data_list:
             try:
-                # Export to CSV using the CSV exporter with append mode support
+                # Enhanced debugging for CSV export
+                if csv_config["debug"]:
+                    print(f"\n=== CSV Export Debug Mode ===")
+                    print(f"CSV output file: {csv_config['output_file']}")
+                    print(f"CSV append mode: {csv_config['append_mode']}")
+                    print(f"Number of AP records to export: {len(csv_data_list)}")
+                    print(f"Output directory: {os.path.dirname(csv_config['output_file'])}")
+                    print(f"Output directory exists: {os.path.exists(os.path.dirname(csv_config['output_file']))}")
+                    
+                    # Import and run the debug environment function
+                    try:
+                        from ap_gnss_stats.lib.exporters.csv_exporter import debug_csv_export_environment
+                        debug_info = debug_csv_export_environment(csv_config["output_file"], None)
+                        print(f"Environment debug info collected: {len(debug_info)} items")
+                    except Exception as debug_error:
+                        print(f"Debug info collection error: {debug_error}")
+                else:
+                    # Basic debug info (always shown)
+                    print(f"\n=== CSV Export Info ===")
+                    print(f"CSV output file: {csv_config['output_file']}")
+                    print(f"CSV append mode: {csv_config['append_mode']}")
+                    print(f"Number of AP records to export: {len(csv_data_list)}")
+                
+                # Set up logging for CSV export if debug mode is enabled
+                csv_logger = None
+                if csv_config["debug"]:
+                    csv_logger = logging.getLogger('csv_export_debug')
+                    csv_logger.setLevel(logging.DEBUG)
+                    
+                    # Create console handler if it doesn't exist
+                    if not csv_logger.handlers:
+                        console_handler = logging.StreamHandler()
+                        console_handler.setLevel(logging.DEBUG)
+                        formatter = logging.Formatter('CSV-DEBUG: %(message)s')
+                        console_handler.setFormatter(formatter)
+                        csv_logger.addHandler(console_handler)
+                
+                # Export to CSV using the CSV exporter with enhanced debugging
                 export_success = export_gnss_data_to_csv(
                     data=csv_data_list,
                     output_file=csv_config["output_file"],
-                    append_mode=csv_config["append_mode"]
+                    append_mode=csv_config["append_mode"],
+                    logger=csv_logger
                 )
                 
                 if export_success:
                     action = "appended to" if csv_config["append_mode"] else "created"
                     print(f"CSV export successful: {action} {csv_config['output_file']}")
-                    # Get some file stats
-                    try:
-                        file_size = os.path.getsize(csv_config["output_file"])
-                        print(f"CSV file size: {file_size:,} bytes")
-                    except Exception:
-                        pass
+                    
+                    # Enhanced file verification (always run)
+                    print(f"=== Post-Export Verification ===")
+                    abs_path = os.path.abspath(csv_config["output_file"])
+                    print(f"Absolute path: {abs_path}")
+                    print(f"File exists: {os.path.exists(abs_path)}")
+                    
+                    if os.path.exists(abs_path):
+                        try:
+                            file_size = os.path.getsize(abs_path)
+                            print(f"CSV file size: {file_size:,} bytes")
+                            
+                            # Count rows
+                            import csv
+                            with open(abs_path, 'r', encoding='utf-8') as f:
+                                reader = csv.reader(f)
+                                rows = list(reader)
+                                print(f"CSV total rows (including header): {len(rows)}")
+                                if rows:
+                                    print(f"CSV columns: {len(rows[0])}")
+                                    
+                            # Additional debug info in debug mode
+                            if csv_config["debug"]:
+                                print(f"First few column names: {rows[0][:10] if rows else 'N/A'}")
+                                if len(rows) > 1:
+                                    print(f"First data row sample: {str(rows[1][:3])[:100]}...")
+                                    
+                        except Exception as verification_error:
+                            print(f"File verification error: {verification_error}")
+                            if csv_config["debug"]:
+                                import traceback
+                                print(f"Verification traceback: {traceback.format_exc()}")
+                    else:
+                        print(f"WARNING: CSV file does not exist after export!")
+                        print(f"Checking directory contents...")
+                        try:
+                            directory = os.path.dirname(abs_path)
+                            if os.path.exists(directory):
+                                contents = os.listdir(directory)
+                                print(f"Directory contents: {contents}")
+                                
+                                # Check if there are any CSV files in the directory
+                                csv_files = [f for f in contents if f.endswith('.csv')]
+                                if csv_files:
+                                    print(f"CSV files found in directory: {csv_files}")
+                            else:
+                                print(f"Directory does not exist: {directory}")
+                        except Exception as dir_error:
+                            print(f"Could not list directory: {dir_error}")
+                            
                 else:
-                    print("CSV export failed - check logs for details")
+                    print("CSV export failed - check debug output above for details")
                     
             except Exception as e:
                 print(f"CSV export error: {str(e)}")
+                if csv_config["debug"]:
+                    import traceback
+                    print(f"Full traceback: {traceback.format_exc()}")
         else:
             print("No valid data available for CSV export")
     elif csv_config["enabled"] and success_count == 0:

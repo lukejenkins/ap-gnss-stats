@@ -33,6 +33,13 @@ def export_gnss_data_to_csv(
         True if export was successful, False otherwise
     """
     try:
+        # Comprehensive input validation and debugging
+        if logger:
+            logger.info(f"=== CSV Export Debug Information ===")
+            logger.info(f"Output file requested: {output_file}")
+            logger.info(f"Append mode: {append_mode}")
+            logger.info(f"Data type: {type(data)}")
+        
         # Ensure data is a list for consistent processing
         if isinstance(data, dict):
             data_list = [data]
@@ -44,68 +51,148 @@ def export_gnss_data_to_csv(
                 logger.warning("No data provided for CSV export")
             return False
             
-        # Create output directory if it doesn't exist
+        if logger:
+            logger.info(f"Processing {len(data_list)} AP record(s)")
+            
+        # Validate output file path
+        output_file = os.path.abspath(output_file)  # Get absolute path
         output_dir = os.path.dirname(output_file)
-        if output_dir:  # Only create directory if there is a directory path
-            os.makedirs(output_dir, exist_ok=True)
+        
+        if logger:
+            logger.info(f"Absolute output file path: {output_file}")
+            logger.info(f"Output directory: {output_dir}")
+            
+        # Check if directory exists and is writable
+        if not output_dir:
+            if logger:
+                logger.error("No directory path specified in output file")
+            return False
+            
+        # Create output directory if it doesn't exist
+        try:
+            if not os.path.exists(output_dir):
+                if logger:
+                    logger.info(f"Creating output directory: {output_dir}")
+                os.makedirs(output_dir, exist_ok=True)
+                if logger:
+                    logger.info(f"Directory created successfully")
+            else:
+                if logger:
+                    logger.info(f"Output directory already exists")
+                    
+            # Check directory permissions
+            if not os.access(output_dir, os.W_OK):
+                if logger:
+                    logger.error(f"No write permission for directory: {output_dir}")
+                return False
+            else:
+                if logger:
+                    logger.info(f"Directory is writable")
+                    
+        except Exception as e:
+            if logger:
+                logger.error(f"Failed to create/access output directory {output_dir}: {e}")
+            return False
         
         if logger:
             action = "Appending" if append_mode else "Exporting"
             logger.info(f"{action} {len(data_list)} AP record(s) to CSV: {output_file}")
-            
-        # Handle append mode vs overwrite mode
+             # Handle append mode vs overwrite mode
+        file_written = False
+        
         if append_mode and os.path.exists(output_file):
+            if logger:
+                logger.info(f"File exists for append mode: {output_file}")
+                file_size = os.path.getsize(output_file)
+                logger.info(f"Existing file size: {file_size:,} bytes")
+                
             # Append mode: read existing columns and append new data
             existing_columns = []
             try:
                 with open(output_file, 'r', encoding='utf-8') as existing_file:
                     reader = csv.reader(existing_file)
                     existing_columns = next(reader, [])  # Get header row
+                    
+                if logger:
+                    logger.info(f"Read {len(existing_columns)} existing columns from CSV header")
+                    
             except Exception as e:
                 if logger:
-                    logger.warning(f"Could not read existing CSV header: {e}. Will overwrite file.")
-                append_mode = False
+                    logger.warning(f"Could not read existing CSV header: {e}. Will create new file instead.")
+                # Don't set append_mode = False here, just continue to create new file
+                existing_columns = []
             
             if existing_columns:
                 # Use existing column structure for append
                 all_columns = existing_columns
                 
+                if logger:
+                    logger.info(f"Appending new data with existing column structure")
+                
                 # Append new data to existing file
                 with open(output_file, 'a', newline='', encoding='utf-8') as csvfile:
                     writer = csv.DictWriter(csvfile, fieldnames=all_columns)
                     
+                    rows_written = 0
                     for ap_data in data_list:
                         flattened_row = _flatten_ap_data(ap_data, all_columns)
                         writer.writerow(flattened_row)
+                        rows_written += 1
                         
                 if logger:
-                    logger.info(f"Successfully appended to CSV with {len(all_columns)} columns")
+                    logger.info(f"Successfully appended {rows_written} rows to CSV with {len(all_columns)} columns")
+                    
+                # Verify file was written correctly
+                _verify_csv_file_after_write(output_file, logger)
+                file_written = True
+                    
             else:
                 # File exists but is empty, treat as new file
-                append_mode = False
+                if logger:
+                    logger.info("Existing file has no header, will create new file")
         
-        if not append_mode:
-            # Normal mode: create new file or overwrite existing
+        # Create new file if we haven't written one yet (either overwrite mode or append mode with no existing file)
+        if not file_written:
+            if append_mode and not os.path.exists(output_file):
+                if logger:
+                    logger.info("Append mode requested but file doesn't exist - creating new file")
+            elif not append_mode:
+                if logger:
+                    logger.info("Creating new CSV file (overwrite mode)")
+            else:
+                if logger:
+                    logger.info("Creating new CSV file")
             # Get all possible column names from all AP records
             all_columns = _get_all_column_names(data_list)
+            
+            if logger:
+                logger.info(f"Generated {len(all_columns)} total columns from data")
             
             # Write CSV file
             with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=all_columns)
                 writer.writeheader()
                 
+                rows_written = 0
                 for ap_data in data_list:
                     flattened_row = _flatten_ap_data(ap_data, all_columns)
                     writer.writerow(flattened_row)
+                    rows_written += 1
                     
             if logger:
-                logger.info(f"Successfully exported CSV with {len(all_columns)} columns")
+                logger.info(f"Successfully created CSV with {rows_written} rows and {len(all_columns)} columns")
+                
+            # Verify file was written correctly
+            _verify_csv_file_after_write(output_file, logger)
             
         return True
         
     except Exception as e:
         if logger:
             logger.error(f"Failed to export CSV: {str(e)}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
 
@@ -459,3 +546,156 @@ def validate_csv_export_data(data: Union[Dict[str, Any], List[Dict[str, Any]]]) 
             warnings.append(f"Record {i}: Satellites data is not a list")
     
     return warnings
+
+
+def _verify_csv_file_after_write(output_file: str, logger: Optional[logging.Logger] = None) -> Dict[str, Any]:
+    """
+    Verify that the CSV file was written correctly and gather diagnostic information.
+    
+    Args:
+        output_file: Path to the CSV file to verify
+        logger: Optional logger for debug information
+        
+    Returns:
+        Dictionary with verification results and file statistics
+    """
+    verification_results = {
+        "file_exists": False,
+        "file_size": 0,
+        "is_readable": False,
+        "header_count": 0,
+        "row_count": 0,
+        "permissions": None,
+        "absolute_path": None,
+        "directory_exists": False,
+        "directory_writable": False
+    }
+    
+    try:
+        # Get absolute path for clarity
+        abs_path = os.path.abspath(output_file)
+        verification_results["absolute_path"] = abs_path
+        
+        # Check if file exists
+        if os.path.exists(abs_path):
+            verification_results["file_exists"] = True
+            
+            # Get file size
+            file_size = os.path.getsize(abs_path)
+            verification_results["file_size"] = file_size
+            
+            # Check if file is readable
+            verification_results["is_readable"] = os.access(abs_path, os.R_OK)
+            
+            # Get file permissions
+            import stat
+            file_stat = os.stat(abs_path)
+            verification_results["permissions"] = oct(file_stat.st_mode)[-3:]
+            
+            # Count rows and headers if file is readable
+            if verification_results["is_readable"]:
+                try:
+                    with open(abs_path, 'r', encoding='utf-8') as csvfile:
+                        reader = csv.reader(csvfile)
+                        rows = list(reader)
+                        if rows:
+                            verification_results["header_count"] = len(rows[0])
+                            verification_results["row_count"] = len(rows) - 1  # Exclude header
+                except Exception as read_error:
+                    if logger:
+                        logger.warning(f"Could not read CSV content for verification: {read_error}")
+            
+            if logger:
+                logger.info(f"File verification - EXISTS: {verification_results['file_exists']}")
+                logger.info(f"File verification - SIZE: {verification_results['file_size']:,} bytes")
+                logger.info(f"File verification - READABLE: {verification_results['is_readable']}")
+                logger.info(f"File verification - PERMISSIONS: {verification_results['permissions']}")
+                logger.info(f"File verification - HEADERS: {verification_results['header_count']}")
+                logger.info(f"File verification - DATA ROWS: {verification_results['row_count']}")
+        else:
+            if logger:
+                logger.error(f"File verification FAILED - File does not exist: {abs_path}")
+        
+        # Check directory
+        directory = os.path.dirname(abs_path)
+        verification_results["directory_exists"] = os.path.exists(directory)
+        verification_results["directory_writable"] = os.access(directory, os.W_OK) if verification_results["directory_exists"] else False
+        
+        if logger:
+            logger.info(f"Directory verification - EXISTS: {verification_results['directory_exists']}")
+            logger.info(f"Directory verification - WRITABLE: {verification_results['directory_writable']}")
+            
+    except Exception as e:
+        if logger:
+            logger.error(f"File verification error: {e}")
+    
+    return verification_results
+
+
+def debug_csv_export_environment(output_file: str, logger: Optional[logging.Logger] = None) -> Dict[str, Any]:
+    """
+    Gather comprehensive debugging information about the CSV export environment.
+    
+    Args:
+        output_file: Path to the CSV file being exported
+        logger: Optional logger for debug information
+        
+    Returns:
+        Dictionary with environment debugging information
+    """
+    debug_info = {
+        "python_version": None,
+        "current_working_directory": None,
+        "user_id": None,
+        "output_file_absolute": None,
+        "output_directory": None,
+        "disk_space_available": None,
+        "environment_variables": {}
+    }
+    
+    try:
+        import sys
+        import pwd
+        import shutil
+        
+        # Basic environment info
+        debug_info["python_version"] = sys.version
+        debug_info["current_working_directory"] = os.getcwd()
+        
+        try:
+            debug_info["user_id"] = pwd.getpwuid(os.getuid()).pw_name
+        except:
+            debug_info["user_id"] = str(os.getuid())
+        
+        # File path info
+        debug_info["output_file_absolute"] = os.path.abspath(output_file)
+        debug_info["output_directory"] = os.path.dirname(debug_info["output_file_absolute"])
+        
+        # Disk space
+        try:
+            statvfs = shutil.disk_usage(debug_info["output_directory"])
+            debug_info["disk_space_available"] = statvfs.free
+        except:
+            debug_info["disk_space_available"] = "Unknown"
+        
+        # Relevant environment variables
+        env_vars_to_check = ["HOME", "USER", "TMPDIR", "PWD", "PATH"]
+        for var in env_vars_to_check:
+            debug_info["environment_variables"][var] = os.environ.get(var, "Not set")
+        
+        if logger:
+            logger.info("=== CSV Export Environment Debug ===")
+            logger.info(f"Python version: {debug_info['python_version']}")
+            logger.info(f"Current working directory: {debug_info['current_working_directory']}")
+            logger.info(f"User: {debug_info['user_id']}")
+            logger.info(f"Output file (absolute): {debug_info['output_file_absolute']}")
+            logger.info(f"Output directory: {debug_info['output_directory']}")
+            logger.info(f"Available disk space: {debug_info['disk_space_available']}")
+            for var, value in debug_info["environment_variables"].items():
+                logger.info(f"ENV {var}: {value}")
+                
+    except Exception as e:
+        if logger:
+            logger.error(f"Failed to gather debug environment info: {e}")
+    
+    return debug_info
