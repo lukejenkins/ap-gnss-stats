@@ -51,8 +51,9 @@ except ImportError:
     # Define a no-op function as fallback that accepts any arguments
     load_dotenv = lambda *args, **kwargs: None
 
-# Import our GNSS parser library
+# Import our parser libraries
 from ap_gnss_stats.lib.parsers.gnss_info_parser import GnssInfoParser
+from ap_gnss_stats.lib.parsers.capwap_config_parser import CapwapConfigParser
 
 # Try to import Prometheus exporter
 try:
@@ -426,7 +427,8 @@ def run_ap_commands(
         "show clock",
         "show gnss info",
         "show version",
-        "show inventory"
+        "show inventory",
+        "show capwap client configuration"
     ]
     
     # Collect all outputs
@@ -526,13 +528,23 @@ def run_ap_commands(
         }
     
     try:
-        # Use the GnssInfoParser to parse the data
-        parser = GnssInfoParser()
-        parsed_data = parser.parse(full_output, ap_address)
+        # Use the GnssInfoParser to parse the GNSS data
+        gnss_parser = GnssInfoParser()
+        parsed_data = gnss_parser.parse(full_output, ap_address)
+        
+        # Use the CapwapConfigParser to parse the CAPWAP client configuration data
+        capwap_parser = CapwapConfigParser()
+        capwap_data = capwap_parser.parse(full_output)
+        
+        # Merge the CAPWAP client configuration data into the parsed data
+        # Since it's already nested under show_capwap_client_config, we can merge directly
+        for key, value in capwap_data.items():
+            parsed_data[key] = value
         
         # Add metadata
         parsed_data["metadata"] = {
-            "parser_version": parser.get_version(),
+            "gnss_parser_version": gnss_parser.get_version(),
+            "capwap_parser_version": capwap_parser.get_version(),
             "parse_time": datetime.now().isoformat(),
             "collection_method": "ssh",
             "ap_address": connection.host,
@@ -1343,6 +1355,7 @@ def main():
                     print(f"\n=== CSV Export Info ===")
                     print(f"CSV output file: {csv_config['output_file']}")
                     print(f"CSV append mode: {csv_config['append_mode']}")
+                    print(f"Number of AP records to export: {len(csv_data_list)}")
                     print(f"Number of AP records to export: {len(csv_data_list)}")
                 
                 # Set up logging for CSV export if debug mode is enabled

@@ -34,6 +34,7 @@ from collections import OrderedDict
 # Add the parent directory to sys.path to allow relative imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 from ap_gnss_stats.lib.parsers.gnss_info_parser import GnssInfoParser
+from ap_gnss_stats.lib.parsers.capwap_config_parser import CapwapConfigParser
 
 # Check if aiofiles is available for async I/O
 try:
@@ -237,16 +238,25 @@ def process_file(file_path: str, args: argparse.Namespace) -> Dict[str, Any]:
         with open(file_path, 'r', encoding='utf-8') as file:
             content = file.read()
         
-        # Use the library parser instead of the old parse_flexible function
-        parser = GnssInfoParser()
-        parsed_data = parser.parse(content)
+        # Use the library parsers
+        gnss_parser = GnssInfoParser()
+        capwap_parser = CapwapConfigParser()
+        
+        # Parse GNSS data
+        parsed_data = gnss_parser.parse(content)
+        
+        # Parse CAPWAP client configuration data and merge with GNSS data
+        capwap_data = capwap_parser.parse(content)
+        for key, value in capwap_data.items():
+            parsed_data[key] = value
         
         # Add consolidated metadata with parser info and timestamp
         # Follow schema requirements: include parser_version, parse_time, input_file, file_size
         # NO parser_user field per requirements
         # NO processing_time_seconds field per requirements
         metadata = {
-            "parser_version": parser.get_version(),
+            "gnss_parser_version": gnss_parser.get_version(),
+            "capwap_parser_version": capwap_parser.get_version(),
             "parse_time": datetime.now().isoformat(),  # IMPORTANT: Must use dynamic timestamp
             "input_file": os.path.basename(file_path),
             "file_size": os.path.getsize(file_path)
@@ -336,15 +346,24 @@ async def process_file_async(file_path: str, args: argparse.Namespace) -> Dict[s
         
         # Use a thread pool for CPU-bound parsing to avoid blocking the event loop
         loop = asyncio.get_event_loop()
-        parser = GnssInfoParser()
-        parsed_data = await loop.run_in_executor(None, parser.parse, content)
+        gnss_parser = GnssInfoParser()
+        capwap_parser = CapwapConfigParser()
+        
+        # Parse GNSS data
+        parsed_data = await loop.run_in_executor(None, gnss_parser.parse, content)
+        
+        # Parse CAPWAP client configuration data and merge with GNSS data
+        capwap_data = await loop.run_in_executor(None, capwap_parser.parse, content)
+        for key, value in capwap_data.items():
+            parsed_data[key] = value
         
         # Add consolidated metadata with parser info and timestamp
         # Follow schema requirements: include parser_version, parse_time, input_file, file_size
         # NO parser_user field per requirements
         # NO processing_time_seconds field per requirements
         metadata = {
-            "parser_version": parser.get_version(),
+            "gnss_parser_version": gnss_parser.get_version(),
+            "capwap_parser_version": capwap_parser.get_version(),
             "parse_time": datetime.now().isoformat(),  # IMPORTANT: Must use dynamic timestamp
             "input_file": os.path.basename(file_path),
             "file_size": os.path.getsize(file_path)
