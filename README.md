@@ -17,10 +17,14 @@ Tools for parsing and analyzing GNSS (Global Navigation Satellite System) statis
 - [X] Add CSV export functionality with comprehensive data flattening
 - [X] ✅ **Bug Fix:** Resolved issue where APs marked successful lacked valid parsed data
 - [X] ✅ **Bug Fix:** Fixed Netmiko hostname truncation issue (see [Known Issues](docs/KNOWN_ISSUES.md))
-- [ ] Add support for pushing the parsed data to Prometheus
+- [P] Add support for pushing the parsed data to Prometheus
 - [ ] Add support for pushing the parsed data to InfluxDB
 - [ ] Add example visualizations using Grafana
 - [ ] Add support for accelerometer sensor data from APs
+- [ ] Add support for pulling AP lists from Cisco Wireless LAN Controller
+  - [ ] Grab Stats from WLC while we're talking to it, such as:
+    - [ ] Pull AFC stats from WLC
+    - [ ] Pull AP neighborship stats from WLC
 - [ ] Add support for pulling AP lists from Cisco DNA Center
 - [ ] Add support for pulling AP lists from netbox
 
