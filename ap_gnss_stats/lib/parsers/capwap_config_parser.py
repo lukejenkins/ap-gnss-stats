@@ -1,12 +1,13 @@
 """
 CAPWAP Client Configuration Parser - Extracts CAPWAP client configuration from access point logs.
 
-This module provides parsers for extracting CAPWAP client configuration from Cisco access points.
+This module provides parsers for extracting CAPWAP client configuration from Cisco access points,
+including both main configuration fields and nested slot configurations.
 """
 import re
 import os
 import sys
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple, Union
 from collections import OrderedDict
 
 # Use relative import for BaseParser
@@ -16,38 +17,44 @@ from parsers.base_parser import BaseParser
 
 
 class CapwapConfigParser(BaseParser):
-    """Parser for CAPWAP client configuration from Cisco access point logs."""
+    """Parser for CAPWAP client configuration from Cisco access point logs.
+    
+    This parser extracts and structures all configuration data from the 
+    'show capwap client configuration' command output, including main fields
+    and all "Slot X Config" sections.
+    """
     
     def __init__(self):
-        """Initialize the parser."""
+        """Initialize the parser with version tracking."""
         super().__init__()
-        self.version = "1.0.0"
+        self.version = "2.0.0"  # Updated version to reflect comprehensive parsing
     
     def parse(self, content: str) -> Dict[str, Any]:
         """Parse CAPWAP client configuration data from content.
+        
+        Extracts all configuration fields from the 'show capwap client configuration' 
+        command output, including both main configuration and all slot configurations.
+        The result is returned as a nested structure with all available fields.
         
         Args:
             content: Raw content from AP logs
             
         Returns:
-            Dictionary with parsed CAPWAP client configuration data
+            Dictionary with nested CAPWAP client configuration data structure
         """
         # Extract CAPWAP client configuration section
         capwap_section = self._extract_capwap_config_section(content)
         if not capwap_section:
             return {"show_capwap_client_config": {}}
         
-        # Initialize nested structure for CAPWAP client config
+        # Extract the main configuration fields and slot configurations
+        main_config = self._extract_main_config(capwap_section)
+        slots_config = self._extract_slot_configs(capwap_section)
+        
+        # Combine into a nested structure
         nested_data = {
-            "name": self._extract_name(capwap_section),
-            "adminstate": self._extract_admin_state(capwap_section),
-            "primary_controller_name": self._extract_primary_controller_name(capwap_section),
-            "apmode": self._extract_ap_mode(capwap_section),
-            "policy_tag": self._extract_policy_tag(capwap_section),
-            "rf_tag": self._extract_rf_tag(capwap_section),
-            "site_tag": self._extract_site_tag(capwap_section),
-            "tag_source": self._extract_tag_source(capwap_section),
-            "swver": self._extract_sw_ver(capwap_section)
+            **main_config,
+            "slots": slots_config
         }
         
         # Create the result with the nested structure
@@ -67,6 +74,7 @@ class CapwapConfigParser(BaseParser):
             CAPWAP client configuration section or empty string if not found
         """
         # Look for the command output section
+        # This pattern matches from the command to either the next command prompt or end of file
         match = re.search(r"show capwap client configuration\s*(.*?)(?=\n\w+#|\Z)", 
                           content, re.DOTALL | re.IGNORECASE)
         
@@ -74,140 +82,157 @@ class CapwapConfigParser(BaseParser):
             return match.group(1).strip()
         return ""
     
-    def _extract_admin_state(self, capwap_section: str) -> Optional[str]:
-        """Extract AdminState from CAPWAP configuration.
+    def _extract_main_config(self, capwap_section: str) -> Dict[str, Any]:
+        """Extract main configuration fields from CAPWAP section.
+        
+        Parses all top-level configuration fields (not in slot sections)
+        and returns them in a dictionary with normalized keys.
         
         Args:
             capwap_section: CAPWAP configuration section
             
         Returns:
-            AdminState value or None if not found
+            Dictionary with all main configuration fields
         """
-        return self.extract_with_pattern(
-            capwap_section,
-            r"AdminState\s*[:=]\s*([^\n]+)",
-            conversion=str.strip
-        )
+        # Define a pattern to match key-value pairs
+        pattern = r"^([^:]+?)\s*:\s*(.+?)$"
+        
+        # Initialize the result dictionary
+        main_config = {}
+        
+        # Process each line until we hit a Slot configuration
+        lines = capwap_section.split('\n')
+        for line in lines:
+            # Skip empty lines
+            if not line.strip():
+                continue
+            
+            # Skip lines that start with "Slot" as they are part of slot configurations
+            if line.strip().startswith("Slot"):
+                continue
+            
+            # Skip indented lines as they are part of slot configurations
+            if line.startswith("    "):
+                continue
+                
+            # Extract key-value pairs
+            match = re.match(pattern, line.strip())
+            if match:
+                key = match.group(1).strip().lower().replace(" ", "_")
+                value = match.group(2).strip()
+                
+                # Try to convert numeric values
+                value = self._normalize_value(value)
+                main_config[key] = value
+        
+        return main_config
     
-    def _extract_name(self, capwap_section: str) -> Optional[str]:
-        """Extract Name from CAPWAP configuration.
+    def _extract_slot_configs(self, capwap_section: str) -> List[Dict[str, Any]]:
+        """Extract slot configurations from CAPWAP section.
+        
+        Identifies all "Slot X Config" sections and extracts their complete
+        configuration into a structured format. Each slot becomes a dictionary
+        with slot_number and a nested configuration dictionary containing all fields.
         
         Args:
             capwap_section: CAPWAP configuration section
             
         Returns:
-            Name value or None if not found
+            List of dictionaries with slot configurations
         """
-        return self.extract_with_pattern(
-            capwap_section,
-            r"Name\s*[:=]\s*([^\n]+)",
-            conversion=str.strip
-        )
+        # Initialize the result list
+        slots = []
+        
+        # Find all slot sections
+        slot_pattern = r"Slot (\d+) Config:(.*?)(?=(?:Slot \d+ Config:|\Z))"
+        slot_matches = re.finditer(slot_pattern, capwap_section, re.DOTALL)
+        
+        for match in slot_matches:
+            slot_num = int(match.group(1))
+            slot_content = match.group(2).strip()
+            
+            # Extract key-value pairs from the slot content
+            slot_config = {}
+            
+            # Handle nested sections (like "Load Profile", "HE Info", etc.)
+            current_section = None
+            current_section_data = {}
+            
+            # Process each line of the slot content
+            for line in slot_content.split('\n'):
+                # Skip empty lines
+                if not line.strip():
+                    continue
+                
+                # Check if this is a section header (ends with a colon but no value after it)
+                section_match = re.match(r'^\s+([^:]+?)\s*:\s*$', line)
+                if section_match:
+                    # If we were processing a section, add it to the config
+                    if current_section and current_section_data:
+                        slot_config[current_section] = current_section_data
+                    
+                    # Start a new section
+                    current_section = section_match.group(1).strip().lower().replace(" ", "_")
+                    current_section_data = {}
+                    continue
+                
+                # Try to match a key-value pair
+                kv_match = re.match(r'^\s+([^:]+?)\s*:\s*(.+?)$', line)
+                if kv_match:
+                    key = kv_match.group(1).strip().lower().replace(" ", "_")
+                    value = kv_match.group(2).strip()
+                    value = self._normalize_value(value)
+                    
+                    # If we're in a section, add to that section
+                    if current_section and re.match(r'^\s{6,}', line):
+                        current_section_data[key] = value
+                    else:
+                        # Otherwise, it's a top-level key in the slot config
+                        slot_config[key] = value
+                        # Reset section tracking if this wasn't part of a section
+                        current_section = None
+                        current_section_data = {}
+            
+            # Don't forget to add the last section if there is one
+            if current_section and current_section_data:
+                slot_config[current_section] = current_section_data
+            
+            # Add the slot to our list
+            slots.append({
+                "slot_number": slot_num,
+                "configuration": slot_config
+            })
+        
+        return slots
     
-    def _extract_primary_controller_name(self, capwap_section: str) -> Optional[str]:
-        """Extract Primary controller name from CAPWAP configuration.
+    def _normalize_value(self, value: str) -> Union[str, int, float, bool]:
+        """Normalize a value by converting to appropriate type.
         
         Args:
-            capwap_section: CAPWAP configuration section
+            value: The string value to normalize
             
         Returns:
-            Primary controller name or None if not found
+            Converted value (int, float, bool, or original string)
         """
-        return self.extract_with_pattern(
-            capwap_section,
-            r"Primary controller name\s*[:=]\s*([^\n]+)",
-            conversion=str.strip
-        )
-    
-    def _extract_ap_mode(self, capwap_section: str) -> Optional[str]:
-        """Extract ApMode from CAPWAP configuration.
+        # Try to convert to appropriate type
+        value = value.strip()
         
-        Args:
-            capwap_section: CAPWAP configuration section
-            
-        Returns:
-            ApMode value or None if not found
-        """
-        return self.extract_with_pattern(
-            capwap_section,
-            r"ApMode\s*[:=]\s*([^\n]+)",
-            conversion=str.strip
-        )
-    
-    def _extract_policy_tag(self, capwap_section: str) -> Optional[str]:
-        """Extract AP Policy Tag from CAPWAP configuration.
+        # Handle boolean values
+        if value.lower() in ['true', 'yes', 'enabled']:
+            return True
+        if value.lower() in ['false', 'no', 'disabled']:
+            return False
         
-        Args:
-            capwap_section: CAPWAP configuration section
-            
-        Returns:
-            AP Policy Tag value or None if not found
-        """
-        return self.extract_with_pattern(
-            capwap_section,
-            r"AP Policy Tag\s*[:=]\s*([^\n]+)",
-            conversion=str.strip
-        )
-    
-    def _extract_rf_tag(self, capwap_section: str) -> Optional[str]:
-        """Extract AP RF Tag from CAPWAP configuration.
-        
-        Args:
-            capwap_section: CAPWAP configuration section
-            
-        Returns:
-            AP RF Tag value or None if not found
-        """
-        return self.extract_with_pattern(
-            capwap_section,
-            r"AP RF Tag\s*[:=]\s*([^\n]+)",
-            conversion=str.strip
-        )
-    
-    def _extract_site_tag(self, capwap_section: str) -> Optional[str]:
-        """Extract AP Site Tag from CAPWAP configuration.
-        
-        Args:
-            capwap_section: CAPWAP configuration section
-            
-        Returns:
-            AP Site Tag value or None if not found
-        """
-        return self.extract_with_pattern(
-            capwap_section,
-            r"AP Site Tag\s*[:=]\s*([^\n]+)",
-            conversion=str.strip
-        )
-    
-    def _extract_tag_source(self, capwap_section: str) -> Optional[str]:
-        """Extract AP Tag Source from CAPWAP configuration.
-        
-        Args:
-            capwap_section: CAPWAP configuration section
-            
-        Returns:
-            AP Tag Source value or None if not found
-        """
-        return self.extract_with_pattern(
-            capwap_section,
-            r"AP Tag Source\s*[:=]\s*([^\n]+)",
-            conversion=str.strip
-        )
-    
-    def _extract_sw_ver(self, capwap_section: str) -> Optional[str]:
-        """Extract SwVer from CAPWAP configuration.
-        
-        Args:
-            capwap_section: CAPWAP configuration section
-            
-        Returns:
-            SwVer value or None if not found
-        """
-        return self.extract_with_pattern(
-            capwap_section,
-            r"SwVer\s*[:=]\s*([^\n]+)",
-            conversion=str.strip
-        )
+        # Handle numeric values
+        try:
+            # Try as integer first
+            if value.isdigit() or (value.startswith('-') and value[1:].isdigit()):
+                return int(value)
+            # Then try as float
+            return float(value)
+        except (ValueError, TypeError):
+            # Return as string if not numeric
+            return value
     
     def get_version(self) -> str:
         """Get the parser version.

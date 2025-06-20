@@ -242,10 +242,49 @@ def _extract_column_names_from_ap_data(data: Dict[str, Any]) -> Set[str]:
             # Flatten nested dictionaries
             for key, value in section_data.items():
                 column_name = f"{section_name}_{key}"
-                columns.add(column_name)
+                
+                # Handle nested arrays like "slots"
+                if isinstance(value, list) and key == "slots":
+                    # Process the slots array - extract all possible slot fields
+                    slot_columns = _extract_slots_column_names(value, section_name)
+                    columns.update(slot_columns)
+                else:
+                    columns.add(column_name)
         else:
             # Simple value
             columns.add(section_name)
+    
+    return columns
+
+
+def _extract_slots_column_names(slots: List[Dict[str, Any]], parent_prefix: str) -> Set[str]:
+    """
+    Extract column names from slot configurations.
+    
+    Args:
+        slots: List of slot dictionaries
+        parent_prefix: Prefix for the column names (section name)
+        
+    Returns:
+        Set of slot-related column names
+    """
+    columns = set()
+    
+    # Add count column
+    columns.add(f"{parent_prefix}_slots_count")
+    
+    # Process each slot to get all possible fields
+    for slot in slots:
+        slot_num = slot.get("slot_number", 0)
+        configuration = slot.get("configuration", {})
+        
+        if not configuration:
+            continue
+            
+        # Add columns for each configuration field in each slot
+        for key, value in configuration.items():
+            column_name = f"{parent_prefix}_slot{slot_num}_{key}"
+            columns.add(column_name)
     
     return columns
 
@@ -326,13 +365,54 @@ def _flatten_ap_data(data: Dict[str, Any], all_columns: List[str]) -> Dict[str, 
         elif isinstance(section_data, dict):
             # Flatten nested dictionaries
             for key, value in section_data.items():
-                column_name = f"{section_name}_{key}"
-                if column_name in flattened:
-                    flattened[column_name] = _format_csv_value(value)
+                # Handle the slots array specially
+                if key == "slots" and isinstance(value, list):
+                    slot_metrics = _flatten_slots_data(value, section_name, all_columns)
+                    for slot_col, slot_val in slot_metrics.items():
+                        if slot_col in flattened:
+                            flattened[slot_col] = slot_val
+                else:
+                    column_name = f"{section_name}_{key}"
+                    if column_name in flattened:
+                        flattened[column_name] = _format_csv_value(value)
         else:
             # Simple value
             if section_name in flattened:
                 flattened[section_name] = _format_csv_value(section_data)
+    
+    return flattened
+
+
+def _flatten_slots_data(slots: List[Dict[str, Any]], parent_prefix: str, all_columns: List[str]) -> Dict[str, Any]:
+    """
+    Flatten slot data into columns.
+    
+    Args:
+        slots: List of slot dictionaries
+        parent_prefix: Prefix for column names (section name)
+        all_columns: List of all possible column names
+        
+    Returns:
+        Dictionary with flattened slot data
+    """
+    flattened = {}
+    
+    # Add count of slots
+    flattened[f"{parent_prefix}_slots_count"] = len(slots)
+    
+    # Process each slot
+    for slot in slots:
+        slot_num = slot.get("slot_number", 0)
+        configuration = slot.get("configuration", {})
+        
+        if not configuration:
+            continue
+            
+        # Add values for each configuration field
+        for key, value in configuration.items():
+            column_name = f"{parent_prefix}_slot{slot_num}_{key}"
+            if column_name in all_columns:
+                flattened[column_name] = _format_csv_value(value)
     
     return flattened
 
